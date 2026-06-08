@@ -1,0 +1,35 @@
+package Libraries.Game.Graphics.Shaders
+use Libraries.Game.GameStateManager
+
+class DropShadowShaderProgram is ShaderProgram
+
+    public constant text DEFAULT_NAME = "Drop Shadow Shader Program"
+    constant text FRAGMENT_NAME = "Drop Shadow Fragment Shader"
+    constant text VERTEX_NAME = "Drop Shadow Vertex Shader"
+
+    on create
+        SetName(DEFAULT_NAME)
+        GameStateManager manager
+        ShaderManager shaderManager = manager:GetShaderManager()
+
+        if shaderManager:HasShader(FRAGMENT_NAME)
+            Shader fragment = shaderManager:GetShader(FRAGMENT_NAME)
+            Add(fragment)
+        else
+            DropShadowFragmentShader fragment
+            Add(fragment)
+        end
+
+        if shaderManager:HasShader(VERTEX_NAME)
+            Shader vertex = shaderManager:GetShader(VERTEX_NAME)
+            Add(vertex)
+        else
+            DropShadowVertexShader vertex
+            Add(vertex)
+        end
+
+        DropShadowShaderMapping mapping
+        SetShaderMapping(mapping)
+    end
+
+end

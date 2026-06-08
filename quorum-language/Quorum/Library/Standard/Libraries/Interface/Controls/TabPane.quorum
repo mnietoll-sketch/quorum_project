@@ -1,0 +1,396 @@
+package Libraries.Interface.Controls
+
+use Libraries.Containers.Array
+use Libraries.Interface.Item2D
+use Libraries.Interface.Controls.Control
+use Libraries.Interface.Layouts.Layout
+use Libraries.Interface.Layouts.LayoutProperties
+use Libraries.Interface.Layouts.FlowLayout
+use Libraries.Interface.Layouts.ManualLayout
+use Libraries.Interface.Events.FocusEvent
+use Libraries.Interface.Events.TabChangeListener
+use Libraries.Interface.Selections.TabPaneSelection
+use Libraries.Game.Graphics.Font
+
+class TabPane is Control
+    
+    TabBar bar
+    Item2D currentItem = undefined
+    TabViewArea viewArea
+    TabPaneSelection selection
+
+    on create
+        SetInputGroup("TabPane")
+        SetName("Tab Pane")
+        viewArea:SetName("Tab View Area")
+        SetFocusable(true)
+        SetAccessibilityCode(parent:Item:TAB_PANE)
+
+        bar:SetTabPane(me)
+        
+        Font font = GetDefaultFont()
+        if font not= undefined
+            integer defaultFontSize = GetDefaultFontSize()
+            SetFont(font)
+            SetFontSize(font:GetSize())
+        end
+        
+LayoutProperties paneProperties = GetDefaultLayoutProperties()
+        paneProperties:SetHorizontalLayoutMode(paneProperties:STANDARD)
+        paneProperties:SetVerticalLayoutMode(paneProperties:STANDARD)
+        paneProperties:SetPercentageWidth(1)
+        paneProperties:SetPercentageHeight(1)
+        
+        TopAlignTabBar()
+
+        Add(bar)
+        Add(viewArea)
+
+        selection:Initialize(me, -1)
+
+        FlowLayout layout
+        layout:SetIgnoreHidden(true)
+        SetLayout(layout)
+
+        FlowLayout flow
+        viewArea:SetLayout(flow)
+    end
+    
+    /*This action sets the TabBar to be a horizontal bar across the top of the TabPane.
+This is the default setting for the TabBar.*/
+    action TopAlignTabBar
+        LayoutProperties viewLayoutProperties = viewArea:GetDefaultLayoutProperties()
+        viewLayoutProperties:SetHorizontalLayoutMode(viewLayoutProperties:STANDARD)
+        viewLayoutProperties:SetVerticalLayoutMode(viewLayoutProperties:FILL)
+        viewLayoutProperties:SetPercentageX(0)
+        viewLayoutProperties:SetPercentageWidth(1)
+        viewArea:SetClipping(true)
+        
+        bar:SetToHorizontal()
+    end
+    
+    /*This action sets the TabBar to be a vertical bar placed on the left side of the TabPane.*/
+    action LeftAlignTabBar
+        LayoutProperties viewLayoutProperties = viewArea:GetDefaultLayoutProperties()
+        viewLayoutProperties:SetHorizontalLayoutMode(viewLayoutProperties:FILL)
+        viewLayoutProperties:SetVerticalLayoutMode(viewLayoutProperties:STANDARD)
+        viewLayoutProperties:SetPercentageHeight(1.0)
+        viewArea:SetClipping(true)
+        
+        bar:SetToVertical()
+    end
+    
+    /* This action returns true if the TabBar is aligned across the top of the TabPane, 
+or false otherwise. By default, this is true. */
+    action IsBarTopAligned returns boolean
+        return bar:IsVertical() = false
+    end
+    
+    /* This action returns true if the TabBar is aligned on the left side of the TabPane,
+or false otherwise. By default, this is false. */
+    action IsBarLeftAligned returns boolean
+        return bar:IsVertical()
+    end
+    
+    /* This action sets the TabBar to use large tabs if the given value is true, or to use
+the default smaller tabs if the value is false. Default tabs place the icon, label, and
+close button all together on a single horizontal line. Large tabs place the label at
+the bottom of the tab, with a larger icon on top of it. */
+    action SetLargeTabs(boolean enable)
+        bar:SetLargeTabs(enable)
+    end
+    
+/* This action returns whether or not the TabBar is using large tabs. By default,
+this is false. */
+    action IsUsingLargeTabs returns boolean
+        return bar:IsUsingLargeTabs()
+    end
+
+    action IsAccessibleParent returns boolean
+        return true
+    end
+
+    action GetDefaultFontSize returns integer
+        return 22
+    end
+
+    action SetViewAreaLayout(Layout layout)
+        viewArea:SetLayout(layout)
+    end
+
+    action GetViewAreaLayout returns Layout
+        return viewArea:GetLayout()
+    end
+
+    action GetViewAreaLayoutProperties returns LayoutProperties
+        return viewArea:GetDefaultLayoutProperties()
+    end
+
+    private action SetCurrentItem(Tab tab)
+        Item2D item = undefined
+
+        if tab not= undefined
+            item = tab:GetRelatedItem()
+        end
+
+        if currentItem not= undefined
+            viewArea:Remove(currentItem)
+        end
+        if item not= undefined
+            viewArea:Add(item)
+        end
+        currentItem = item
+        Resize()
+        if item not= undefined and item is Control
+            Control control = cast(Control, item)
+            control:RequestLayout()
+        end
+    end
+
+    action GetCurrentItem returns Item2D
+        return currentItem
+    end
+
+    action Add(Array<Tab> array)
+        i = 0
+        repeat while i < array:GetSize()
+            Tab tab = array:Get(i)
+            tab:SetTabPane(me)
+            bar:Add(tab)
+            i = i + 1
+        end
+    end
+
+    action Add(Tab tab)
+        tab:SetTabPane(me)
+        bar:Add(tab)
+    end
+
+    action Remove(Tab tab)
+        bar:Remove(tab)
+    end
+
+    action Get(integer index) returns Tab
+        return bar:Get(index)
+    end
+
+    action GetTabs returns Array<Tab>
+        return bar:GetTabs()
+    end
+
+    action GetSize returns integer
+        return bar:GetSize()
+    end
+
+    /*
+        This essentially does what Select does but it will not move focus to the
+        tab
+    */
+    action Display(integer index)
+        if index = -1
+            Deselect()
+        elseif index >= 0 and index < GetSize()
+            Get(index):SetToggleState(true)
+        end
+    end
+
+    action Display(Tab tab)
+        integer size = GetSize()
+        integer counter = 0
+        repeat while counter < size
+            if Get(counter) = tab
+                Display(counter)
+                return now
+            end
+            counter = counter + 1
+        end
+    end
+
+    action Select(integer index)
+        Select(index, true)
+    end
+
+    action Select(integer index, boolean focusContents)
+        if index = -1
+            Deselect()
+        elseif index >= 0 and index < GetSize()
+            Get(index):SetToggleState(true)
+            if focusContents
+                Get(index):Activate()
+            end
+        end
+    end
+
+    action Select(Tab tab)
+        Select(tab, true)
+    end
+
+    action Select(Tab tab, boolean focusContents)
+        integer size = GetSize()
+        integer counter = 0
+        repeat while counter < size
+            if Get(counter) = tab
+                Select(counter, focusContents)
+                return now
+            end
+            counter = counter + 1
+        end
+    end
+
+    action Deselect
+        integer index = selection:GetIndex()
+        if index >= 0 and index < GetSize()
+            Get(index):SetToggleState(false)
+        end
+    end
+
+    action UpdateSelection(Tab tab)
+        integer size = GetSize()
+        integer index = selection:GetIndex()
+        if index >= 0 and index < size
+            if Get(index) = tab
+                return now
+            end
+        end
+
+        integer counter = 0
+        boolean found = false
+
+        if tab not= undefined
+            repeat while counter < size
+                if Get(counter) = tab
+                    selection:Set(counter)
+                    found = true
+                    counter = size
+                end
+                counter = counter + 1
+            end
+        end
+
+        if found
+            SetCurrentItem(tab)
+        else
+            SetCurrentItem(undefined)
+            selection:Set(-1)
+        end
+    end
+
+    action GetSelection returns TabPaneSelection
+        return selection
+    end
+
+    action GetSelectedTab returns Tab
+        if selection = undefined
+            return undefined
+        end
+
+        return selection:GetTab()
+    end
+
+    action AddTabChangeListener(TabChangeListener listener)
+        bar:AddTabChangeListener(listener)
+    end
+
+    action RemoveTabChangeListener(TabChangeListener listener)
+        bar:RemoveTabChangeListener(listener)
+    end
+
+    /*
+    This action sets the Font to be used by this Control. How this Font is used
+    varies between Controls, and in some cases the Control will ignore it 
+    entirely (for example, ScrollPanes), but typically this sets the font that's
+    used for the default label on many Controls, such as Buttons. If the Font
+    is undefined, many Controls will omit their default label.
+
+    Attribute: Parameter font The Font to use for this Control.
+    */
+    action SetFont(Font font)
+        parent:Control:SetFont(font)
+        if bar not= undefined
+            bar:SetFont(font)
+        end
+    end
+
+    /*
+    This action sets the base Font size to be used by this Control, if the
+    Control uses a Font.
+    */
+    action SetFontSize(integer size)
+        parent:Control:SetFontSize(size) 
+        if bar not= undefined
+            bar:SetFontSize(size)
+        end
+    end
+
+    /*
+TabPanes don't usually accept focus on themselves. Instead, they redirect focus to their contents.
+If the current tab has a focus target, that will receive the focus. If there isn't a target, the
+TabPane will try to focus the tab's related item. If the related item isn't focusable, it'll focus
+the first focusable item within the first generation of children of the related item instead.
+    */
+    action GainedFocus(FocusEvent event)
+        if selection:IsEmpty() = true
+            if bar:IsEmpty() = false
+                Get(0):Activate()
+            end
+        else
+            Tab tab = selection:GetTab()
+            if tab:GetFocusTarget() not= undefined
+                tab:GetFocusTarget():Focus()
+            else
+                Item2D relatedItem = tab:GetRelatedItem()
+                Item2D focusable = GetFirstFocusableChild(relatedItem)
+                if focusable not= undefined
+                    focusable:Focus()
+                end
+            end
+        end
+        parent:Control:GainedFocus(event)
+    end
+    
+    // Recursively depth-first searches an item's child hierarchy looking for a focusable Item. Will return the parameter if it's focusable.
+    private action GetFirstFocusableChild(Item2D item) returns Item2D
+        if item:IsFocusable()
+            return item
+        end
+        
+        Array<Item2D> children = item:GetChildren()
+        integer i = 0
+        repeat while i < children:GetSize()
+            Item2D child = children:Get(i)
+            Item2D target = GetFirstFocusableChild(child)
+            if target not= undefined
+                return target
+            end
+            i = i + 1
+        end
+        
+        return undefined
+    end
+    
+/*This action returns the amount of spacing, in non-scaled pixels, that will be placed
+between each Tab in the TabBar. If a Tab has its own margin values set, then this
+will be ignored for that Tab.
+
+Attribute: Returns The default amount of pixels between each Tab.*/
+    action GetTabSpacing returns number
+        return bar:GetTabSpacing()
+    end
+
+/*This action sets the amount of spacing, in non-scaled pixels, that will be placed
+between each Tab in the TabBar. If a Tab has its own margin values set, then this
+will be ignored for that Tab.
+
+Attribute: Parameter tabSpacing The default amount of pixels between each Tab.*/
+    action SetTabSpacing(number tabSpacing)
+        bar:SetTabSpacing(tabSpacing)
+    end
+    
+    /*  This action returns the TabBar at the top of this TabPane.
+
+        Attribute: Returns The TabBar associated with this TabPane.
+    */
+    action GetTabBar returns TabBar
+        return bar
+    end
+end

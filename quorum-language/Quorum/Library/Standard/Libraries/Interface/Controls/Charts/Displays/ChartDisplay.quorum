@@ -1,0 +1,82 @@
+package Libraries.Interface.Controls.Charts
+use Libraries.Game.Game
+use Libraries.Interface.Layouts.ManualLayout
+use Libraries.Game.DesktopConfiguration
+use Libraries.Game.WebConfiguration
+use Libraries.Game.Layer2D
+use Libraries.Game.Layer3D
+
+/*
+    This class is used as a default display region for charts. It allows basic
+    charts to be shown on screen, and accessible, without extending the game class.
+
+    Attribute: Author Andreas Stefik
+*/
+class ChartDisplay is Game
+    boolean exitOnStart = false
+    integer frame = 0
+
+    Chart chart = undefined
+
+    on create
+        DesktopConfiguration desktop = GetDesktopConfiguration()
+        desktop:targetFramesPerSecond = 10
+        WebConfiguration web = GetWebConfiguration()
+        web:framesPerSecondLimit = 10
+    end
+    /*
+        This action gets the chart within this chart display game object. 
+
+        Attribute: Returns the chart in the display. 
+    */
+    action GetChart returns Chart
+        return chart
+    end
+    /*
+        This action sets the chart to be displayed within the chart display game. 
+
+        Attribute: Parameter location The index or location the value will be stored at.
+
+        Attribute: Returns the chart in the display. 
+    */
+    action SetChart(Chart chart)
+        me:chart = chart
+    end
+
+    action CreateGame
+        ManualLayout layout
+        SetLayout(layout)
+
+        Layer2D layer = GetCurrentLayer2D()
+        layer:EnablePhysics(false)
+
+        //This is weird, but the 3D layer probably isn't needed here, 
+        //so get rid of it to save memory. The user can always make their own display.
+        RemoveLayer(1)
+        RemoveLayer(0)
+        AddLayer(layer)
+        SetCurrentLayer3D(undefined)
+
+        chart:SetPercentageWidth(1)
+        chart:SetPercentageHeight(1)
+
+        Add(chart)
+        chart:Focus()
+    end
+
+    action Update(number seconds)
+        if frame >= 1 and exitOnStart
+            Exit()
+        end
+
+        frame = frame + 1
+    end
+
+    action GetExitOnStart returns boolean
+        return exitOnStart
+    end
+
+    action SetExitOnStart(boolean exitOnStart)
+        me:exitOnStart = exitOnStart
+    end
+end

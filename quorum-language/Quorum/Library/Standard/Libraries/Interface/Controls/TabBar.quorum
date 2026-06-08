@@ -1,0 +1,489 @@
+package Libraries.Interface.Controls
+
+use Libraries.Containers.Array
+use Libraries.Interface.Item2D
+use Libraries.Interface.Controls.Control
+use Libraries.Interface.Views.LabelBoxView
+use Libraries.Interface.Views.View2D
+use Libraries.Interface.Layouts.Layout
+use Libraries.Interface.Layouts.LayoutProperties
+use Libraries.Interface.Layouts.TabBarFlowLayout
+use Libraries.Interface.Layouts.HorizontalTabBarFlowLayout
+use Libraries.Interface.Events.TabChangeEvent
+use Libraries.Interface.Events.TabChangeListener
+use Libraries.Interface.Selections.TabPaneSelection
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.ColorGroup
+use Libraries.Game.Graphics.Font
+use Libraries.Interface.Views.ControlShaderView
+use Libraries.Interface.Layouts.VerticalTabBarFlowLayout
+use Libraries.Interface.Layouts.FlowLayout
+use Libraries.Interface.Layouts.LargeTabLayout
+use Libraries.Interface.Layouts.AlignedTabFlowLayout
+
+class TabBar is Control
+    
+    Array<Tab> tabs
+    TabBarFlowLayout layout = undefined
+    TabPane pane = undefined
+    boolean useLargeTabs = false
+
+    Array<TabChangeListener> listeners
+    
+    // How much extra space should be added between tabs, in non-scaled pixels.
+    // Only used if Tabs don't have their own margin values during layout.
+    number tabSpacing = 0
+
+    on create
+        SetToHorizontal()
+
+        SetClipping(true)
+        SetName("Tab Bar")
+        SetInterfaceOptionsKey("TabBar")
+    end
+    
+    action SetToHorizontal
+HorizontalTabBarFlowLayout horizontalLayout
+        layout = horizontalLayout
+        
+        LayoutProperties layoutProperties = GetDefaultLayoutProperties()
+        layoutProperties:SetHorizontalLayoutMode(layoutProperties:STANDARD)
+        layoutProperties:SetVerticalLayoutMode(layoutProperties:FIT_CONTENTS)
+        layoutProperties:SetPercentageWidth(1.0)
+
+        SetLayout(layout)
+    end
+    
+    action SetToVertical
+VerticalTabBarFlowLayout verticalLayout
+        layout = verticalLayout
+        
+        LayoutProperties layoutProperties = GetDefaultLayoutProperties()
+        layoutProperties:SetHorizontalLayoutMode(layoutProperties:FIT_CONTENTS)
+        layoutProperties:SetVerticalLayoutMode(layoutProperties:STANDARD)
+        layoutProperties:SetPercentageWidth(0.2)
+        layoutProperties:SetPercentageHeight(1.0)
+
+        SetLayout(layout)
+    end
+    
+    action IsHorizontal returns boolean
+        return GetLayout() is HorizontalTabBarFlowLayout
+    end
+    
+    action IsVertical returns boolean
+        return GetLayout() is VerticalTabBarFlowLayout
+    end
+
+    action Add(Array<Tab> array)
+        integer counter = 0
+        repeat while counter < array:GetSize()
+            Add(array:Get(counter))
+            counter = counter + 1
+        end
+    end
+
+    action Add(Tab tab)
+        if tabs:IsEmpty() = false
+Tab firstTab = tabs:GetFromFront()
+        Tab lastTab = tabs:GetFromEnd()
+            
+            firstTab:SetPreviousFocus(tab)
+            lastTab:SetNextFocus(tab)
+            tab:SetPreviousFocus(lastTab)
+            tab:SetNextFocus(firstTab)
+        end
+        
+        SetTabProperties(tab)
+        
+        tabs:Add(tab)
+        parent:Item2D:Add(tab)
+        tab:SetTabBar(me)
+        
+        Resize()
+
+        TabChangeEvent event
+        event:Set(tab, pane, event:OPENED)
+        NotifyTabChangeListeners(event)
+    end
+    
+    // Used when tab size or bar orientation changes. Updates all tabs with correct layouts and properties.
+    private action UpdateAllTabProperties
+        integer i = 0
+        repeat while i < tabs:GetSize()
+            SetTabProperties(tabs:Get(i))
+            i = i + 1
+        end
+    end
+    
+    private action SetTabProperties(Tab tab)
+        tab:SetFontSize(GetFontSize())
+        
+        if IsUsingLargeTabs()
+            LargeTabLayout largeLayout
+            tab:SetLayout(largeLayout)
+            tab:SetPercentageHeight(4.0)
+        elseif IsVertical()
+            AlignedTabFlowLayout alignedLayout
+            tab:SetLayout(alignedLayout)
+            tab:GetLabel():SetPositionOnBaseLine(false)
+        else
+FlowLayout flow
+flow:SetIgnoreHidden(true)
+        tab:SetLayout(flow)
+        end
+        
+        if IsVertical()
+tab:SetPercentageWidth(1.0)
+        tab:SetHorizontalLayoutMode(tab:parent:Control:STANDARD)
+            if tab:GetInterfaceOptionsKey() = "Tab"
+tab:SetTopLeftRounding(0)
+            tab:SetTopRightRounding(0)
+            end
+        else
+tab:SetHorizontalLayoutMode(tab:parent:Control:FIT_CONTENTS)
+        end
+    end
+    
+    /* This action sets the TabBar to use large tabs if the given value is true, or to use
+the default smaller tabs if the value is false. Default tabs place the icon, label, and
+close button all together on a single horizontal line. Large tabs place the label at
+the bottom of the tab, with a larger icon on top of it. */
+    action SetLargeTabs(boolean enable)
+        if enable = useLargeTabs
+            return now
+        end
+        
+        useLargeTabs = enable
+        UpdateAllTabProperties()
+    end
+    
+    /* This action returns whether or not the TabBar is using large tabs. By default,
+this is false. */
+    action IsUsingLargeTabs returns boolean
+        return useLargeTabs
+    end
+
+    action Remove(Tab tab)
+        if tab = undefined
+            return now
+        end
+
+        tab:OnClose()
+
+        TabPaneSelection selection = pane:GetSelection()
+        boolean reselect = false
+
+        
+        integer index = selection:GetIndex()
+        Tab currentTab = selection:GetTab()
+        if currentTab = tab
+            reselect = true
+        end
+        pane:Deselect()
+
+        tabs:Remove(tab)
+        parent:Item2D:Remove(tab)
+        tab:SetTabBar(undefined)
+
+        if reselect
+            if tabs:GetSize() > 0
+                index = index - 1
+
+                if index < 0
+                    index = 0
+                end
+                pane:Select(index)
+            else
+                pane:UpdateSelection(undefined)
+            end
+        else
+            pane:Select(currentTab)
+        end
+
+        tab:Dispose()
+
+        Resize()
+
+        TabChangeEvent event
+        event:Set(tab, pane, event:CLOSED)
+        NotifyTabChangeListeners(event)
+    end
+
+    action Get(integer index) returns Tab
+        return tabs:Get(index)
+    end
+
+    action GetTabs returns Array<Tab>
+        return tabs
+    end
+
+    action SetTabPane(TabPane tabPane)
+        pane = tabPane
+        LayoutProperties paneProperties = GetDefaultLayoutProperties()
+        SetFont(paneProperties:GetFont())
+        SetFontSize(paneProperties:GetFontSize())
+    end
+
+    action GetTabPane returns TabPane
+        return pane
+    end
+
+    action FitTab(Tab tab)
+        integer index = GetChildren():GetFirstLocation(tab)
+        if index = -1 or GetWidth() <= 0 or GetHeight() <= 0
+            return now
+        end
+
+        if IsHorizontal()
+if tab:GetX() <= 0
+            LeftFitTab(index - 1.15)
+        elseif tab:GetX() + tab:GetWidth() >= GetWidth()
+            RightFitTab(index + 1.15)
+        end
+        else
+            if tab:GetY() <= 0
+                BottomFitTab(index + 1.15)
+            elseif tab:GetY() + tab:GetHeight() >= GetHeight()
+                TopFitTab(index - 1.15)
+            end
+        end
+        
+    end
+
+    action LeftFitTab(number index)
+        Array<Item2D> children = GetChildren()
+        if index < 0
+            index = 0
+        elseif index >= children:GetSize()
+            index = children:GetSize() - 1
+        end
+
+        integer counter = 0
+        number offset = 0
+        integer intIndex = cast(integer, index)
+        repeat while counter < intIndex
+            Item2D item = children:Get(counter)
+            offset = offset + item:GetWidth()
+            counter = counter + 1
+        end
+
+        // Include a percentage of the width of the next item, if we have any remainder.
+        if counter < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter):GetWidth()
+        // If there's no next item, offset it by the last item, if there is one.
+        elseif counter - 1 < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter - 1):GetWidth()
+        end
+
+        layout:SetOffset(offset)
+        Resize()
+    end
+
+    action RightFitTab(number index)
+        Array<Item2D> children = GetChildren()
+        if index < 0
+            index = 0
+        elseif index >= children:GetSize()
+            index = children:GetSize() - 1
+        end
+
+        integer counter = 0
+        number offset = 0
+        integer intIndex = cast(integer, index)
+        repeat while counter <= intIndex
+            Item2D item = children:Get(counter)
+            offset = offset + item:GetWidth()
+            counter = counter + 1
+        end
+
+        // Include a percentage of the width of the next item, if we have any remainder.
+        if counter < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter):GetWidth()
+        // If there's no next item, offset it by the last item, if there is one.
+        elseif counter - 1 < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter - 1):GetWidth()
+        end
+
+        layout:SetOffset(offset - GetWidth())
+        Resize()
+    end
+    
+action TopFitTab(number index)
+        Array<Item2D> children = GetChildren()
+        if index < 0
+            index = 0
+        elseif index >= children:GetSize()
+            index = children:GetSize() - 1
+        end
+
+        integer counter = 0
+        number offset = 0
+        integer intIndex = cast(integer, index)
+        repeat while counter < intIndex
+            Item2D item = children:Get(counter)
+            offset = offset + item:GetHeight()
+            counter = counter + 1
+        end
+
+        // Include a percentage of the height of the next item, if we have any remainder.
+        if counter < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter):GetHeight()
+        // If there's no next item, offset it by the last item, if there is one.
+        elseif counter - 1 < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter - 1):GetHeight()
+        end
+
+        layout:SetOffset(offset)
+        Resize()
+    end
+
+    action BottomFitTab(number index)
+        Array<Item2D> children = GetChildren()
+        if index < 0
+            index = 0
+        elseif index >= children:GetSize()
+            index = children:GetSize() - 1
+        end
+
+        integer counter = 0
+        number offset = 0
+        integer intIndex = cast(integer, index)
+        repeat while counter <= intIndex
+            Item2D item = children:Get(counter)
+            offset = offset + item:GetHeight()
+            counter = counter + 1
+        end
+
+        // Include a percentage of the height of the next item, if we have any remainder.
+        if counter < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter):GetHeight()
+        // If there's no next item, offset it by the last item, if there is one.
+        elseif counter - 1 < children:GetSize()
+            offset = offset + (index - intIndex) * children:Get(counter - 1):GetHeight()
+        end
+
+        layout:SetOffset(offset - GetHeight())
+        Resize()
+    end
+
+    action GetSize returns integer
+        return tabs:GetSize()
+    end
+
+    action IsEmpty returns boolean
+        return tabs:IsEmpty()
+    end
+
+    action AddTabChangeListener(TabChangeListener listener)
+        listeners:Add(listener)
+    end
+
+    action RemoveTabChangeListener(TabChangeListener listener)
+        listeners:Remove(listener)
+    end
+
+    private action NotifyTabChangeListeners(TabChangeEvent event)
+        GameStateManager manager
+        manager:GetInput():NotifyTabChangeListeners(event)
+
+        integer counter = 0
+        if event:GetEventType() = event:OPENED
+            repeat while counter < listeners:GetSize()
+                listeners:Get(counter):OpenedTab(event)
+                counter = counter + 1
+            end
+        elseif event:GetEventType() = event:CLOSED
+            repeat while counter < listeners:GetSize()
+                listeners:Get(counter):ClosedTab(event)
+                counter = counter + 1
+            end
+        end
+    end
+
+    /*
+    This action is used to load the graphical components of the Control. This is
+    handled automatically by the Game engine as needed, and most users shouldn't
+    need to use this action directly.
+    */
+    action LoadGraphics(LayoutProperties properties)
+        if properties = undefined
+            return now
+        end
+
+        View2D view = properties:GetView2D()
+        if view = undefined
+            if GetView2D() = undefined
+                ControlShaderView content
+                content:SetName("TabBar View")
+                content:Initialize()
+                view = content
+            end
+        end
+
+        if view not= undefined
+            SetView2D(view)
+        end
+
+        parent:Control:LoadGraphics(properties)
+    end
+
+    /*
+    This action sets the Font to be used by this Control. How this Font is used
+    varies between Controls, and in some cases the Control will ignore it 
+    entirely (for example, ScrollPanes), but typically this sets the font that's
+    used for the default label on many Controls, such as Buttons. If the Font
+    is undefined, many Controls will omit their default label.
+
+    Attribute: Parameter font The Font to use for this Control.
+    */
+    action SetFont(Font font)
+        parent:Control:SetFont(font)
+        integer counter = 0
+        repeat while counter < tabs:GetSize()
+            tabs:Get(counter):SetFont(font)
+            counter = counter + 1
+        end
+    end
+
+    /*
+    This action sets the base Font size to be used by this Control, if the
+    Control uses a Font.
+    */
+    action SetFontSize(integer size)
+        parent:Control:SetFontSize(size)
+        integer counter = 0
+        repeat while counter < tabs:GetSize()
+            tabs:Get(counter):SetFontSize(size)
+            counter = counter + 1
+        end
+    end
+
+    action DeselectAll
+        integer i = 0
+        repeat while i < tabs:GetSize()
+            tabs:Get(i):SetToggleState(false)
+            i = i + 1
+        end
+    end
+    
+    /*This action returns the amount of spacing, in non-scaled pixels, that will be placed
+between each Tab in the TabBar. If a Tab has its own margin values set, then this
+will be ignored for that Tab.
+
+Attribute: Returns The default amount of pixels between each Tab.*/
+    action GetTabSpacing returns number
+        return tabSpacing
+    end
+
+/*This action sets the amount of spacing, in non-scaled pixels, that will be placed
+between each Tab in the TabBar. If a Tab has its own margin values set, then this
+will be ignored for that Tab.
+
+Attribute: Parameter tabSpacing The default amount of pixels between each Tab.*/
+    action SetTabSpacing(number tabSpacing)
+        me:tabSpacing = tabSpacing
+    end
+
+end

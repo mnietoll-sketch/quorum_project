@@ -1,0 +1,55 @@
+package Libraries.Language.Compile.Translate
+use Libraries.Language.Compile.Symbol.Class
+use Libraries.Language.Compile.Symbol.Action
+
+shared class TranslateConstants
+    integer tab = 0
+    text tabText = ""
+    text TAB_VALUE = tabText:GetTab()
+    Class clazz = undefined
+    boolean isUserCodeAsync = true
+
+    action GetTab returns integer
+        return tab
+    end
+
+    action GetTabText returns text
+        return tabText
+    end
+
+    action IncreaseTab
+        tab = tab + 1
+        tabText = tabText + TAB_VALUE
+    end
+
+    action DecreaseTab
+        tab = tab - 1
+        if tab <= 0
+            tab = 0
+            tabText = ""
+        else
+            tabText = tabText:GetSubtext(0, tab)
+        end
+    end
+
+    action ResetTabs
+        tab = 0
+        tabText = ""
+    end
+
+    action GetClass returns Class
+        return clazz
+    end
+
+    action SetClass(Class clazz)
+        me:clazz = clazz
+    end
+
+    action IsUserCodeAsynchronous returns boolean
+        return isUserCodeAsync
+    end
+
+    action SetUserCodeAsynchronous(boolean isUserCodeAsync)
+        me:isUserCodeAsync = isUserCodeAsync
+    end
+end

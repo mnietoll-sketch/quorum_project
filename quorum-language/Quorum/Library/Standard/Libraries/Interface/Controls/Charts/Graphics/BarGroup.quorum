@@ -1,0 +1,191 @@
+package Libraries.Interface.Controls.Charts.Graphics
+
+use Libraries.Containers.Array
+use Libraries.Interface.Controls.Charts.GroupPanel
+
+/*
+The BarGroup class is a data structure that stores information for each 
+group (array) of bars at a certain tick or by a certain factor marked 
+by its label. This class also contains an Icon that is used for accessibility.
+
+Attribute: Example
+
+use Libraries.Interface.Controls.Charts.Graphics.BarGroup
+class Main
+        action Main
+        // Make a group
+        BarGroup group
+        
+        // Add a bar
+        Bar bar
+        group:AddBar(bar)
+        
+        // Get a bar and set its value
+        group:Get(0):SetValue(20.0)
+    end
+end
+*/
+
+class BarGroup is GroupPanel
+    number totalValueOfGroup = 0
+    number totalPositiveValue = 0 // Used in determining height of positive value bar when stacked
+    number totalNegativeValue = 0 // Used in determining height of negative value bar when stacked
+    number maxBarValue = 0
+    number minBarValue = 0
+    Bar maxBar = undefined
+
+    // The name of the group this represents. Separate from the default name, which can be reported to accessibility.
+    text groupName = ""
+
+    action AddBar(Bar bar)
+        AddItem(bar)
+        RecalculateGroupValues()
+    end
+    /*
+        This action adds a bar to the bar group, given the name and value.
+    
+        Attribute: Parameter name the name (label) of the bar to be added.
+        Attribute: Parameter value the value of the bar to be added.
+    */
+    action AddBar(text name, number value)
+        Bar bar
+        bar:SetName(name)
+        bar:SetValue(value)
+        AddItem(bar)
+        RecalculateGroupValues()
+    end
+    /*
+        This action gets the bar from the bar group given the index associated with the
+        bar in the container.
+    
+        Attribute: Parameter index the container location of the bar.
+        Attribute: Returns the bar from the bar group.
+    */
+    action Get(integer index) returns Bar
+        return cast(Bar, GetItemAt(index))
+    end
+    /*
+        This action gets all the bars in the bar group and returns an array of bars.
+
+        Attribute: Returns the Array<Bar> containing all the bars in the group.
+    */
+    action GetBars returns Array<Bar>
+        return cast(Array<Bar>, GetGroupItems())
+    end
+    /*
+        This action empties the bar group of all items.
+    */
+    action EmptyItems()
+        totalValueOfGroup = 0
+        totalPositiveValue = 0 
+        totalNegativeValue = 0 
+        maxBarValue = 0
+        minBarValue = 0        
+        parent:GroupPanel:EmptyItems()
+    end
+
+    /*
+        These actions will help the chart determine the best aesthetic range
+        of automatically calculated min and max as well as limit the user from
+        decreasing/increasing the axis min and max beyond the end-range bar values.
+    */
+    action GetValue returns number
+        return totalValueOfGroup
+    end
+    /*
+        This action gets negative bar value. It is used in determining height of 
+        negative value bar when stacked.
+
+        Attribute: Returns the number representing the negative bar when stacked.
+    */
+    action GetNegativeValue returns number
+        return totalNegativeValue
+    end
+    /*
+        This action gets positive bar value. It is used in determining height of 
+        positive value bar when stacked.
+
+        Attribute: Returns the number representing the positive bar when stacked.
+    */
+    action GetPositiveValue returns number
+        return totalPositiveValue
+    end
+    /*
+        This action gets maximum bar value.
+
+        Attribute: Returns the number representing the maximum bar value.
+    */
+    action GetMaxBarValue returns number
+        return maxBarValue
+    end
+    /*
+        This action gets minimum bar value.
+
+        Attribute: Returns the number representing the minimum bar value.
+    */
+    action GetMinBarValue returns number
+        return minBarValue
+    end
+    /*
+        This action gets maximum bar from the bar group.
+
+        Attribute: Returns the maximum bar object.
+    */
+    action GetMaxBar returns Bar
+        return maxBar
+    end
+
+    /*
+        Since the user can alter the value of the bar manually, 
+        Anytime a bar is added or it's value changes the totals 
+        for this group will be recalculated.
+    */
+    action RecalculateGroupValues
+        totalValueOfGroup = 0
+        totalPositiveValue = 0 
+        totalNegativeValue = 0 
+        maxBarValue = 0
+        minBarValue = 0   
+        Array<Bar> bars = GetBars()
+        integer i = 0
+        repeat while i < bars:GetSize()
+            value = bars:Get(i):GetValue()
+            if i = 0
+                maxBarValue = value
+                maxBar = bars:Get(i)
+            end
+
+            if value > maxBarValue
+                maxBarValue = value
+                maxBar = bars:Get(i)
+            end
+            if value < minBarValue
+                minBarValue = value
+            end
+            totalValueOfGroup = totalValueOfGroup + value
+            if value < 0
+                totalNegativeValue = totalNegativeValue + value
+            else
+                totalPositiveValue = totalPositiveValue + value
+            end    
+            i = i + 1
+        end
+    end
+    /*
+        This action gets the bar groups name.
+
+        Attribute: Returns the text name of the bar group.
+    */
+    action GetGroupName returns text
+        return groupName
+    end
+    /*
+        This action sets the bar groups name.
+
+        Attribute: Parameter groupName the text name of the bar group.
+    */
+    action SetGroupName(text groupName)
+        me:groupName = groupName
+    end
+
+end

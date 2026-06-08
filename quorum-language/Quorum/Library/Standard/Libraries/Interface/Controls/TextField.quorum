@@ -1,0 +1,2092 @@
+package Libraries.Interface.Controls
+
+use Libraries.Interface.Item2D
+use Libraries.Game.GameStateManager
+use Libraries.Game.Graphics.Drawable
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.ColorGroup
+use Libraries.Game.Graphics.Font
+use Libraries.Game.Graphics.Texture
+use Libraries.Game.Graphics.Glyph
+use Libraries.Interface.Events.MouseEvent
+use Libraries.Interface.Events.MouseListener
+use Libraries.Interface.Events.MouseMovementListener
+use Libraries.Interface.Events.MouseWheelListener
+use Libraries.Interface.Events.FocusListener
+use Libraries.Interface.Events.FocusEvent
+use Libraries.Interface.Events.TextChangeEvent
+use Libraries.Interface.Events.TextChangeListener
+use Libraries.Interface.Layouts.ManualLayout
+use Libraries.Interface.Layouts.LayoutProperties
+use Libraries.Interface.Selections.TextFieldSelection
+use Libraries.Interface.Views.DrawableView
+use Libraries.Containers.Array
+use Libraries.Containers.MultipleLineText
+use Libraries.Containers.Support.Pair
+use Libraries.System.File
+use Libraries.Compute.Math
+use Libraries.Interface.Accessibility
+use Libraries.Interface.Views.ControlShaderView
+use Libraries.Interface.Undo.TextFieldEditManager
+use Libraries.Interface.Undo.TextFieldEditState
+use Libraries.Containers.Number32BitArray
+use Libraries.Interface.Controls.TextStyles.TextStyle
+use Libraries.Containers.HashTable
+use Libraries.Interface.Controls.TextStyles.TextHighlight
+/*
+    The TextField class is a control object and UI element it is added to the Game 
+    class. The TextField is used to represent a general text area that contains a single
+    line of text.
+
+    Attribute: Author William Allee, Andreas Stefik, Gabe Contra
+
+    Attribute: Example
+    use Libraries.Interface.Forms.Form
+    use Libraries.Interface.Forms.Page
+    use Libraries.Interface.Controls.TextField
+    use Libraries.Game.Graphics.Color
+    
+    class Main 
+        action Main 
+            Form form
+            Page page = form:GetMainPage()
+
+            TextField field
+            Color color
+            field:SetName("myTxt")
+            field:SetBackgroundColor(color:Green())
+            page:Add(field)
+
+            form:Display()
+        end
+    end
+*/
+class TextField is Control, MouseListener, MouseMovementListener, FocusListener
+
+    /*
+    All of the text contained in this object.
+    */
+    text textValue = ""
+
+    /*
+    The font used for the text. For future iterations, this will be replaced by
+    an iterable structure, along with information indicating at what line and
+    character positions the font changes.
+    */
+    Font font = undefined
+
+    Drawable caret = undefined
+    integer caretThickness = 1
+
+    // How far the first character in the view has slid to the left to show text that extends past the end of the TextField.
+    number horizontalOffset = 0.0
+
+    /*
+    Whether the caret is active or not. This does not necessarily mean the caret
+    is visible at any exact moment - the caret might be non-visible even while
+    active, for example if the caret has been idle and is blinking. This boolean
+    effectively ensures that the caret is usable, i.e., the text box has focus.
+    */
+    boolean caretActive = false
+
+    boolean doubleClicking = false
+    integer doubleClickStartIndex = 0
+    integer doubleClickEndIndex = 0
+    integer dragStartIndex = 0
+
+    // if true any adjustments to text and the caret will always try to fit the the caret or characters into the view
+    // if false the text field will not offset the text to fit better into the view
+    boolean moveView = true
+
+    // Values for caret movement and blink
+    number caretIdleTime = 1.0
+    number caretBlinkTime = 0.35
+    number caretMoveDelay = 0.35
+    number caretMoveTime = 0.0325
+    number caretTimer = 0
+
+    /*
+    The caret's position is known using three values:
+        caretLine, which line the caret is on.
+        caretCharacter, the character index of the caret on its particular line.
+        caretX, the actual X position of the caret, which is used for vertical movement.
+    */
+    integer caretLine = 0
+    integer caretCharacter = 0
+    number caretX = 0
+
+    TextFieldSelection selection
+    TextFieldEditManager editManager
+    /*
+    The texture used for the selection higlight. Initialized as a 1x1 white texture.
+    */
+    Texture selectionTexture = undefined
+
+    TextFieldBackground background
+
+    integer leftCharacterPadding = 9
+
+    /*
+    Values used for when text is being selected by dragging the mouse.
+    */
+    boolean draggingInText = false
+
+    /*
+    An array of listeners which are notified when the text in this TextBox
+    changes.
+    */
+    Array<TextChangeListener> textChangeListeners
+
+    Math math
+
+    /* 
+    The caret's previous position, which is set when the SHIFT key is pressed
+    and used in creating a selection following a mouse click
+    */
+    integer previousCaretPosition = 0
+
+    /* This field dictates whether this control should render as a password field. */
+    boolean passwordField = false
+    
+    /*
+    TextStyle objects are used to indicate changes in the style of text at
+    certain points. For example, text might be a different color, size, or font.
+    
+    The "textStyles" array is sorted from lowest start index to highest start index.
+    The "styleTable" HashTable is used to associate names with styles.
+    */
+    Array<TextStyle> textStyles
+    HashTable<text, TextStyle> styleTable
+
+    on create
+        SetName("Text Field")
+        SetInterfaceOptionsKey("TextField")
+        SetInputGroup("TextField")
+        SetFocusable(true)
+        AddFocusListener(me)
+        SetClipping(true)
+        AddMouseListener(me)
+        AddMouseMovementListener(me)
+
+        Add(background)
+
+        caret = background:GetCaret()
+
+        font = GetDefaultFont()
+
+        selection:Initialize(me, "")
+        SetAccessibilityCode(parent:Item:TEXT_FIELD)
+
+        AddTextChangeListener(editManager)
+        editManager:SetTextField(me)
+
+        ManualLayout layout
+        SetLayout(layout)
+
+        LayoutProperties backgroundLayout = background:GetDefaultLayoutProperties()
+        backgroundLayout:SetInterfaceOptionsKey("TextField")
+        backgroundLayout:SetPercentageWidth(1)
+        backgroundLayout:SetPercentageHeight(1)
+        
+
+        Color color
+        LayoutProperties defaultProperties = GetDefaultLayoutProperties()
+        defaultProperties:SetInterfaceOptionsKey("TextField")
+        defaultProperties:SetFont(font)
+        defaultProperties:SetFontSize(font:GetSize())
+        defaultProperties:SetVerticalLayoutMode(defaultProperties:FIT_FONT)
+        defaultProperties:SetHorizontalLayoutMode(defaultProperties:STANDARD)
+
+        HideCaret()
+    end
+
+    action SetInterfaceOptionsKey(text key)
+        parent:Control:SetInterfaceOptionsKey(key)
+        background:SetInterfaceOptionsKey(key)
+    end
+
+    /*
+        This action returns whether or not this text field is a protected password.
+
+        Attribute: Returns true if this is a password field.
+    */
+    action IsPassword returns boolean
+        return passwordField
+    end
+
+    /*
+        This returns the widths of characters from the left 
+        hand side of the screen. 
+    */
+    action GetCharacterWidths returns Number32BitArray
+        Number32BitArray array
+        Font font = GetFont()
+        text value = GetText()
+        array:SetSize(value:GetSize())
+        i = 0
+        repeat while value not= undefined and i < value:GetSize()
+            Glyph glyph = font:GetGlyph(value)
+            number advance = glyph:horizontalAdvance
+            array:Set(i, advance)
+            i = i + 1
+        end
+        return array
+    end
+    
+    /*
+        This returns the x positions of characters from the left 
+        hand side of the screen. 
+    */
+    action GetCharacterXPositions returns Number32BitArray
+        
+        Number32BitArray array
+        Font font = GetFont()
+        text value = GetText()
+        array:SetSize(value:GetSize())
+        i = 0
+        number sum = 0.0
+        repeat while value not= undefined and i < value:GetSize()
+            Glyph glyph = font:GetGlyph(value)
+            number advance = glyph:horizontalAdvance
+            array:Set(i, sum)
+            sum = sum + advance
+            i = i + 1
+        end
+        return array
+    end
+
+    /*
+        This action returns whether or not this text field is a protected password.
+
+        Attribute: Parameter value Set this to true to make this a password field
+    */
+    action SetPassword(boolean value)
+        me:passwordField = value
+        GameStateManager manager
+        Accessibility access = manager:GetAccessibility()
+        if access not= undefined
+            access:TextFieldUpdatePassword(me)
+            TextChangeEvent changeEvent
+            changeEvent:Initialize(me, GetText(), GetText(), textValue:GetSize())
+            access:TextChanged(changeEvent)
+        end
+    end
+    /*
+        This action returns the left padding for individual characters.
+
+        Attribute: Returns the integer representing the character left padding.
+    */
+    action GetLeftCharacterPadding returns integer
+        return leftCharacterPadding
+    end
+    /*
+        This action sets the left padding for each character given an integer padding value.
+
+        Attribute: Parameter padding the left padding integer value.
+    */
+    action SetLeftCharacterPadding(integer padding)
+        leftCharacterPadding = padding
+    end
+
+    /*
+    This action is used to load the graphical components of the Control. This is
+    handled automatically by the Game engine as needed, and most users shouldn't
+    need to use this action directly.
+    */
+    action LoadGraphics(LayoutProperties properties)
+        parent:Control:LoadGraphics(properties)
+
+        if selectionTexture = undefined
+            Texture texture
+            selectionTexture = texture
+            selectionTexture:LoadFilledRectangle(1, 1)
+        end
+
+        ColorGroup backgroundColor = properties:GetBackgroundColor()
+
+        if backgroundColor not= undefined
+            ControlShaderView backgroundView
+            backgroundView:Initialize()
+            background:SetView2D(backgroundView)
+        end
+
+        caret:SetColor(GetIconColor())
+
+        GetLineDrawables()
+    end
+
+    /*
+    Makes everything from scratch. For initialization purposes.
+    */
+    private action GetLineDrawables
+        if selectionTexture = undefined
+            // If we don't have a selection texture, the graphics haven't been
+            // loaded yet, and we should wait until they are to create the
+            // drawables for text.
+            return now
+        end
+
+        LayoutProperties currentProperties = GetCurrentLayoutProperties()
+        ColorGroup fontColor = GetFontColor()
+        ColorGroup selectedFontColor = GetSelectionFontColor()
+        ColorGroup selectionColor = GetSelectionColor()
+
+        if font:GetSize() not= cast(integer, (currentProperties:GetFontSize() * currentProperties:GetInterfaceScale()))
+            font:SetSize(cast(integer, currentProperties:GetFontSize() * currentProperties:GetInterfaceScale()))
+        end
+
+        // Ensure caret is correct size.
+        InitializeCaret()
+        
+        background:Empty()
+
+        integer size = textValue:GetSize()
+        integer lineHeight = font:GetLineHeight()
+        integer maxDescent = font:GetMaximumDescent()
+
+        number bottomPadding = GetBottomPadding()
+
+        integer characterCounter = 0
+        number x = leftCharacterPadding + horizontalOffset
+        repeat size times
+            Glyph glyph = undefined
+            if IsPassword()
+                glyph = font:GetGlyph("*")
+            else 
+                glyph = font:GetGlyph(textValue:GetCharacter(characterCounter))
+            end
+            
+            Drawable draw = undefined
+            if glyph:texture not= undefined
+                draw = background:GetDrawable()
+                draw:SetAcceptsMouseInput(false)
+                draw:Load(glyph:texture)
+            end
+
+            boolean highlighted = false
+
+            if characterCounter >= selection:GetStartIndex() and characterCounter < selection:GetEndIndex()
+                highlighted = true
+            end
+
+            if highlighted
+                Drawable highlight = background:GetDrawable()
+                highlight:Load(selectionTexture)
+                highlight:SetSize(glyph:horizontalAdvance, lineHeight)
+                highlight:SetColor(selectionColor)
+                highlight:SetPosition(x, 0)
+                highlight:SetAcceptsMouseInput(false)
+                background:AddSelectionDrawable(highlight)
+            end
+
+            if draw not= undefined
+                draw:SetPosition(x + glyph:lengthToGlyph, glyph:heightFromBaseLine - draw:GetHeight() - maxDescent + bottomPadding)
+                background:AddCharacter(draw)
+
+                if highlighted
+                    draw:SetColor(selectedFontColor)
+                else
+                    draw:SetColor(fontColor)
+                end
+            end
+            x = x + glyph:horizontalAdvance
+            characterCounter = characterCounter + 1
+        end
+        
+        // Refresh the TextStyles.
+        UpdateTextStylesAt(0, textValue:GetSize())
+        
+        // Iterate through the styles looking for highlights, and add them back to the background.
+        integer i = 0
+        repeat while i < textStyles:GetSize()
+            TextStyle style = textStyles:Get(i)
+            AddTextStyleHighlight(style)
+            i = i + 1
+        end
+
+        PositionCaret()
+    end
+
+    private action InitializeCaret
+        if caret:IsLoaded() = false
+            caret:LoadFilledRectangle(1, 1)
+            caret:SetName("TextBox Caret")
+        end
+
+        integer thickness = caretThickness
+        if GetCurrentLayoutProperties() not= undefined
+            thickness = cast(integer, caretThickness * GetCurrentLayoutProperties():GetInterfaceScale())
+        end
+
+        caret:SetSize(thickness, font:GetLineHeight())
+        caret:SetColor(GetIconColor())
+    end
+
+    action SetAutomaticViewMovement(boolean auto)
+        me:moveView = auto
+    end
+
+    action GetAutomaticViewMovement returns boolean
+        return me:moveView
+    end
+
+    /*
+    Positions the caret on the screen using the caretLine and caretCharacter
+    values. Also calculates the new x position of the caret, which is returned.
+    Depending on context, this value can be saved to overwrite the previous
+    caretX, or ignored to preserve the old value.
+    */
+    private action PositionCaret returns number
+
+        number x = horizontalOffset
+        text lineCharacters = textValue
+
+        integer counter = 0
+        repeat while counter < caretCharacter
+            Glyph glyph = font:GetGlyph(lineCharacters:GetCharacter(counter))
+            x = x + glyph:horizontalAdvance
+            counter = counter + 1
+        end
+
+        caret:SetPosition(x + leftCharacterPadding, GetBottomPadding())
+        return x + leftCharacterPadding
+    end
+
+    private action EmptySelectionEvent(boolean textChanged)
+        integer index = caretCharacter
+
+        selection:Set(index, index, true, textChanged)
+
+        // Report the new selection here.
+        UpdateVisualSelection()
+    end
+
+    private action SelectionMoveLeft
+
+        integer index = caretCharacter
+
+        if (index < selection:GetStartIndex())
+            integer endIndex = selection:GetEndIndex()
+            selection:Set(index, endIndex, (index = endIndex), false)
+        else
+            integer startIndex = selection:GetStartIndex()
+            selection:Set(startIndex, index, true, false)
+        end
+
+        // Report the new selection here.
+        UpdateVisualSelection()
+    end
+
+    private action SelectionMoveRight
+
+        integer index = caretCharacter
+
+        if (index > selection:GetEndIndex())
+            integer startIndex = selection:GetStartIndex()
+            selection:Set(startIndex, index, true, false)
+        else
+            integer endIndex = selection:GetEndIndex()
+            selection:Set(index, endIndex, (index = endIndex), false)
+        end
+
+        // Report the new selection here.
+        UpdateVisualSelection()
+    end
+
+    /*
+    Update the drawables to reflect the selection.
+    */
+    private action UpdateVisualSelection
+        GetLineDrawables()
+    end
+
+    /*
+    Sets the caret to a particular index. Left private because it does not
+    adjust the selection, update the visuals, or trigger any events, and is only 
+    used in preparation for other calls which will perform some tasks from the 
+    caret's position and then trigger the appropriate events.
+    */
+    private action SetCaretToIndex(integer index)
+        caretCharacter = index
+    end
+
+    /*
+        This action sets the position of the flashing carat icon whithin the text field.
+
+        Attribute: Parameter index the location of the caret in the line of text.
+    */
+    action SetCaretPosition(integer index)
+        ShowCaret()
+        SetCaretToIndex(index)
+        caretX = PositionCaret()
+
+        if (moveView)
+            FitCharacterOnScreen(caretCharacter)
+        end
+        ResetCaretBlinkTimer()
+
+        EmptySelectionEvent(false)
+    end
+    /*
+        This action moves the caret left in the text field. Whether the user is selecting
+        should be tracked and passed to this action. This allows the selection to be updated
+        with the caret location.
+
+        Attribute: Parameter selecting true when text is currently selected in the text field.
+    */
+    action MoveCaretLeft(boolean selecting)
+        if not caretActive
+            return now
+        end
+
+        integer oldIndex = caretCharacter
+
+        if caretCharacter = 0
+            if (not selecting) and (not selection:IsEmpty())
+                EmptySelectionEvent(false)
+            end
+
+            return now
+        else
+            if (not selecting) and (not selection:IsEmpty())
+                caretCharacter = selection:GetStartIndex()
+            else
+                caretCharacter = caretCharacter - 1
+            end
+        end
+        if (moveView)
+            FitCharacterOnScreen(caretCharacter)
+        end
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+
+        if selecting
+            SelectionMoveLeft()
+        else
+            EmptySelectionEvent(false)
+        end
+    end
+    /*
+        This action moves the caret right in the text field. Whether the user is selecting
+        should be tracked and passed to this action. This allows the selection to be updated
+        with the caret location.
+
+        Attribute: Parameter selecting true when text is currently selected in the text field.
+    */
+    action MoveCaretRight(boolean selecting)
+        if not caretActive
+            return now
+        end
+
+        integer oldIndex = caretCharacter
+
+        text lineText = textValue
+        integer size = lineText:GetSize()
+
+        if caretCharacter >= size
+            if (not selecting) and (not selection:IsEmpty())
+                EmptySelectionEvent(false)
+            end
+
+            return now
+        else
+            if (not selecting) and (not selection:IsEmpty())
+                caretCharacter = selection:GetEndIndex()
+            else
+                caretCharacter = caretCharacter + 1
+            end
+        end
+        if (moveView)
+            FitCharacterOnScreen(caretCharacter)
+        end
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+
+        if selecting
+            SelectionMoveRight()
+        else
+            EmptySelectionEvent(false)
+        end
+    end
+
+    /*
+        Fits a character horizontally in the TextField then redraws and repositions the caret correctly. 
+    */
+    action FitViewToCharacter(integer index)
+        FitCharacterOnScreen(index)
+        GetLineDrawables()
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+    end
+
+    /*
+    Fits a character horizontally in the TextField.
+    */
+    private action FitCharacterOnScreen(integer character)
+        if character = 0
+            horizontalOffset = 0
+            return now
+        end
+
+        number singleCharacterAdvance = GetFont():GetGlyph("W"):horizontalAdvance
+        number x = 0
+        number totalX = 0
+        integer characterCounter = 0
+        integer finalCharacter = GetSize()
+
+        // calculate the entire advance of the string to prevent offsetting too far 
+        repeat GetSize() times
+            Glyph glyph = font:GetGlyph(textValue:GetCharacter(characterCounter))
+            totalX = totalX + glyph:horizontalAdvance
+            if characterCounter < character
+                x = x + glyph:horizontalAdvance
+                characterCounter = characterCounter + 1
+            end
+        end
+
+        // move half a width over to fit show text before and after character
+        if (x + horizontalOffset < 0)
+            horizontalOffset = -(x - GetWidth()/2)
+        elseif x + horizontalOffset + singleCharacterAdvance*2 > GetWidth()
+            horizontalOffset = -x + GetWidth()/2
+        end
+
+        // if on the final character show nothing to the right
+        if characterCounter = finalCharacter
+            horizontalOffset = -x + GetWidth() - singleCharacterAdvance * 1.5
+        end
+
+        // clamp the offset to not go too far left or right
+
+        // do not offset if the offset would leave empty space on the left
+        if x < GetWidth() - singleCharacterAdvance * 2
+            horizontalOffset = 0
+            return now
+        end
+
+        // prevent empty space on the left
+        if horizontalOffset > 0
+            horizontalOffset = 0
+        // prevent empty space on the right 
+        elseif horizontalOffset < -totalX
+            horizontalOffset = -x + GetWidth() - singleCharacterAdvance * 1.5
+        end
+    end
+
+    /*
+    The ShowCaret action forces the caret to display. The caret will begin to
+    blink at a rate determined by the caret's idle time (see the 
+    SetCaretIdleTime action).
+    */
+    action ShowCaret
+        caretActive = true
+        ResetCaretBlinkTimer()
+    end
+
+    private action ResetCaretBlinkTimer()
+        if caretActive
+            caret:Show()
+            caretTimer = caretIdleTime
+        end
+    end
+    /*
+        This action hides the flashing caret within the text field.
+    */
+    action HideCaret
+        caret:Hide()
+        caretActive = false
+    end
+    
+    /*
+        This action deletes the character behind the caret (left) or the selected text.
+    */
+    action DeleteBackward
+        if (not selection:IsEmpty())
+            DeleteSelection()
+            return now
+        end
+
+        integer index = caretCharacter
+        if index = 0
+            return now
+        end
+
+        integer toDelete = 1
+        DecrementStyleIndices(index - 1, toDelete)
+
+        text deletedText = textValue:GetSubtext(index - toDelete, index)
+        text preText = ""
+        text postText = ""
+        if (index - toDelete) > 0
+            preText = textValue:GetSubtext(0, index - toDelete)
+        end
+        if (index < textValue:GetSize())
+            postText = textValue:GetSubtext(index, textValue:GetSize())
+        end
+
+        textValue = preText + postText
+        caretCharacter = caretCharacter - toDelete
+        if (moveView)
+            FitCharacterOnScreen(caretCharacter)
+        end
+        GetLineDrawables()
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+
+        TextChangeEvent changeEvent
+        changeEvent:Initialize(me, "", deletedText, GetCaretPosition())
+
+        NotifyTextChangeListeners(changeEvent)
+        EmptySelectionEvent(true)
+    end
+    /*
+        This action deletes the character in front of the caret (right) or the selected text.
+    */
+    action DeleteForward
+        if (not selection:IsEmpty())
+            DeleteSelection()
+            return now
+        end
+
+        if caretCharacter = textValue:GetSize()
+            return now
+        end
+
+        integer toDelete = 1
+
+        integer index = caretCharacter
+        text deletedText = textValue:GetSubtext(index, index + toDelete)
+        
+DecrementStyleIndices(index, toDelete)
+
+        text preText = ""
+        text postText = ""
+        if index > 0
+            preText = textValue:GetSubtext(0, index)
+        end
+        if (index + toDelete < textValue:GetSize())
+            postText = textValue:GetSubtext(index + toDelete, textValue:GetSize())
+        end
+
+        textValue = preText + postText
+
+        GetLineDrawables()
+        PositionCaret()
+        ResetCaretBlinkTimer()
+
+        TextChangeEvent changeEvent
+        changeEvent:Initialize(me, "", deletedText, GetCaretPosition())
+
+        NotifyTextChangeListeners(changeEvent)
+        EmptySelectionEvent(true)
+    end
+    /*
+        This action deletes the selected text.
+    */
+    action DeleteSelection
+        DeleteSelection(true)
+    end
+
+    private action DeleteSelection(boolean triggerTextChangeEvent)
+        if selection:IsEmpty()
+            return now
+        end
+
+        text deletedText = textValue:GetSubtext(selection:GetStartIndex(), selection:GetEndIndex())
+        caretCharacter = selection:GetStartIndex()
+        integer endIndex = selection:GetEndIndex()
+        
+        DecrementStyleIndices(caretCharacter, deletedText:GetSize())
+
+        text preText = ""
+        text postText = ""
+        if caretCharacter > 0
+            preText = textValue:GetSubtext(0, caretCharacter)
+        end
+        if (endIndex < textValue:GetSize())
+            postText = textValue:GetSubtext(endIndex, textValue:GetSize())
+        end
+
+        textValue = preText + postText  
+
+        if moveView
+            FitCharacterOnScreen(caretCharacter)
+        end
+        GetLineDrawables()
+        PositionCaret()
+        ResetCaretBlinkTimer()
+
+        if triggerTextChangeEvent
+            TextChangeEvent changeEvent
+            changeEvent:Initialize(me, "", deletedText, selection:GetStartIndex())
+            NotifyTextChangeListeners(changeEvent)
+        end
+
+        EmptySelectionEvent(true)
+    end
+    
+    /*
+        This action deletes the characters in the string of text from the given start
+        and end indexes.
+
+        Attribute: Parameter startIndex the first character location.
+        Attribute: Parameter endIndex the last character location.
+    */
+    action Delete(integer startIndex, integer endIndex)
+        if startIndex = endIndex
+            return now
+        end
+
+        caretCharacter = startIndex
+        DecrementStyleIndices(caretCharacter, endIndex - startIndex)
+
+        text preText = ""
+        text postText = ""
+        if caretCharacter > 0
+            preText = textValue:GetSubtext(0, caretCharacter)
+        end
+        if (endIndex < textValue:GetSize())
+            postText = textValue:GetSubtext(endIndex, textValue:GetSize())
+        end
+text deletedText = textValue:GetSubtext(startIndex, endIndex)
+        textValue = preText + postText
+        if (moveView)
+            FitCharacterOnScreen(caretCharacter)
+        end
+        GetLineDrawables()
+        PositionCaret()
+        ResetCaretBlinkTimer()
+        
+        
+TextChangeEvent changeEvent
+        changeEvent:Initialize(me, "", deletedText, GetCaretPosition())
+
+        NotifyTextChangeListeners(changeEvent)
+
+        EmptySelectionEvent(true)
+    end
+    /*
+        This action inserts the given text into the text fields text
+        at a given location in the text fields content.
+
+        Attribute: Parameter index the location.
+        Attribute: Parameter value the text to be inserted.
+    */
+    action Insert(integer index, text value)
+        SetCaretToIndex(index)
+        Insert(value)
+    end
+    /*
+        This action inserts the given text into the text fields text
+        at the caret location.
+
+        Attribute: Parameter value the text to be inserted.
+    */
+    action Insert(text value)
+        text deletedText = ""
+        integer originalIndex = GetCaretPosition()
+        boolean shouldDeleteSelection = (not selection:IsEmpty())
+        
+        IncrementStyleIndices(originalIndex, value:GetSize())
+
+        if (shouldDeleteSelection)
+            originalIndex = selection:GetStartIndex()
+            deletedText = textValue:GetSubtext(selection:GetStartIndex(), selection:GetEndIndex())
+            DecrementStyleIndices(originalIndex, deletedText:GetSize())
+            DeleteSelection(false)
+        end
+
+        text preText = ""
+        text postText = ""
+
+        if caretCharacter > 0
+            preText = textValue:GetSubtext(0, caretCharacter)
+        end     
+        if caretCharacter < textValue:GetSize()
+            postText = textValue:GetSubtext(caretCharacter, textValue:GetSize())
+        end
+
+        textValue = preText + value + postText
+
+        caretCharacter = caretCharacter + value:GetSize()
+
+        if moveView
+            FitCharacterOnScreen(caretCharacter)
+        end
+        GetLineDrawables()
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+
+        TextChangeEvent changeEvent
+        changeEvent:Initialize(me, value, deletedText, originalIndex)
+
+        EmptySelectionEvent(true)
+
+        NotifyTextChangeListeners(changeEvent)
+    end
+
+    action DraggedMouse(MouseEvent event)
+        if draggingInText
+            MousePositionCaret(event, true)
+        end
+    end
+
+    action ClickedMouse(MouseEvent event)
+        if event:GetSource() not= undefined and event:GetSource() is Item2D and event:clickCount = 1
+            ShowCaret()
+            // Assume main text area was clicked.
+            draggingInText = true
+            doubleClicking = false
+            MousePositionCaret(event, false)
+            dragStartIndex = GetCaretPosition()
+        end
+    end
+
+    action ReleasedMouse(MouseEvent event)
+        draggingInText = false
+        if event:clickCount >= 2
+            doubleClicking = false
+        end
+    end
+
+    private action MousePositionCaret(MouseEvent event, boolean dragging)
+
+        integer index = caretCharacter
+
+        number mouseX = event:GetX() - GetGlobalX()
+        boolean leftEdgeOfBox = false
+        boolean rightEdgeOfBox = false
+
+        Glyph glyph = font:GetGlyph("W")
+        number advance = glyph:horizontalAdvance * 2
+        if mouseX < advance 
+            leftEdgeOfBox = true
+        elseif mouseX > GetWidth() - advance
+            rightEdgeOfBox = true
+        end
+
+        if dragging and moveView
+            if leftEdgeOfBox
+                horizontalOffset = horizontalOffset + advance
+                if horizontalOffset >= 0
+                    horizontalOffset = 0
+                end
+            elseif rightEdgeOfBox
+                horizontalOffset = horizontalOffset - advance
+            end
+        end
+
+        PositionCaretFromCoordinates(event:GetX() - GetGlobalX(), event:GetY() - GetGlobalY())
+
+        if dragging and moveView
+            FitCharacterOnScreen(caretCharacter)
+        end
+        if dragging and not doubleClicking
+            // for textfields it seems to be standard to hide the caret when dragging
+            HideCaret()
+            if index = caretCharacter
+                return now
+            end
+
+            originalIndex = GetCaretPosition()
+            if originalIndex < dragStartIndex
+                Select(originalIndex, dragStartIndex, false)
+            elseif originalIndex > dragStartIndex
+                Select(dragStartIndex, originalIndex, true)
+            end
+
+        elseif dragging and doubleClicking
+            integer originalIndex = GetCaretPosition()
+            // for textfields it seems to be standard to hide the caret when dragging
+            HideCaret()
+            if originalIndex < doubleClickStartIndex
+                integer tokenStart = GetTokenStartIndex()
+                integer tokenEnd = GetTokenEndIndex(tokenStart)
+                if GetCaretPosition() >= tokenEnd
+                    SetCaretPosition(tokenEnd)
+                    Select(tokenEnd, doubleClickEndIndex)
+                elseif GetCaretPosition() < tokenEnd
+                    SetCaretPosition(tokenStart)
+                    Select(tokenStart, doubleClickEndIndex)
+                end
+            elseif originalIndex > doubleClickEndIndex
+                integer tokenEnd = GetTokenEndIndex()
+                integer tokenStart = GetNextTokenStartIndex()
+                if tokenStart <= tokenEnd
+                    SetCaretPosition(tokenStart)
+                    Select(doubleClickStartIndex, tokenStart)
+                elseif tokenStart > tokenEnd
+                    SetCaretPosition(tokenEnd)
+                    Select(doubleClickStartIndex, tokenEnd)
+                end
+            else
+                SetCaretPosition(doubleClickEndIndex)
+                Select(doubleClickStartIndex, doubleClickEndIndex)
+            end
+            SetCaretToIndex(selection:GetEndIndex())
+        else
+            EmptySelectionEvent(false)
+        end
+        ResetCaretBlinkTimer()
+    end
+
+    action SetDoubleClickIndices(integer startIndex, integer endIndex)
+        doubleClicking = true
+        doubleClickStartIndex = startIndex
+        doubleClickEndIndex = endIndex
+    end
+
+    private action PositionCaretFromCoordinates(number x, number y)
+        integer index = GetNearestCharacter(x)
+        caretCharacter = index
+        caretX = PositionCaret()
+    end
+
+    /*
+    For the given line, find the character index for the closest possible cursor
+    position. Used for vertical caret navigation.
+    */
+    private action GetNearestCharacter(number position) returns integer
+        text lineText = textValue
+        integer size = lineText:GetSize()
+
+        position = position - leftCharacterPadding - horizontalOffset
+
+        number x1 = 0
+        number x2 = 0
+        integer counter = 0
+        number distance1 = position
+        repeat while counter < size
+            Glyph glyph = font:GetGlyph(lineText:GetCharacter(counter))
+            x2 = x1 + glyph:horizontalAdvance
+            if x2 > position
+                return counter
+            end
+            x1 = x2
+            counter = counter + 1
+        end
+
+        return counter
+    end
+
+    action GainedFocus(FocusEvent event)
+        ShowCaret()
+        background:SetBorderColor(GetFocusBorderColor())
+        SetBorderThickness(GetBorderThickness())
+        RequestLayout()
+        parent:Control:GainedFocus(event)
+        background:RequestVerticesUpdate()
+    end
+
+    action LostFocus(FocusEvent event)
+        HideCaret()
+        background:SetBorderColor(GetBorderColor())
+        SetBorderThickness(GetBorderThickness())
+        RequestLayout()
+        parent:Control:LostFocus(event)
+        background:RequestVerticesUpdate()
+    end
+
+    action Update(number seconds)
+        if caretActive
+            caretTimer = caretTimer - seconds
+            if caretTimer < 0
+                caretTimer = caretBlinkTime
+                if caret:IsShowing()
+                    caret:Hide()
+                else
+                    caret:Show()
+                end
+            end
+        end
+    end
+
+    action SetCaretIdleTime(number time)
+        caretIdleTime = time
+    end
+
+    action SetCaretMoveDelay(number time)
+        caretMoveDelay = time
+    end
+
+    action SetCaretMoveTime(number time)
+        caretMoveTime = time
+    end
+
+    action GetCaretIdleTime returns number
+        return caretIdleTime
+    end
+
+    action GetCaretMoveDelay returns number
+        return caretMoveDelay
+    end
+
+    action GetCaretMoveTime returns number
+        return caretMoveTime
+    end
+
+    action GetCaretPosition returns integer
+        return caretCharacter
+    end
+
+    action GetCaretX returns number
+        return caret:GetX()
+    end
+
+    action GetCaretY returns number
+        return caret:GetY()
+    end
+
+    action GetCaretGlobalX returns number
+        return caret:GetGlobalX()
+    end
+
+    action GetCaretGlobalY returns number
+        return caret:GetGlobalY()
+    end
+    /*
+        This action gets all the text in the text field.
+
+        Attribute: Returns the text to be inserted.
+    */
+    action GetText returns text
+        return textValue
+    end
+    /*
+        This action gets the text from a specified index to another
+        specified end index in the text field.
+
+        Attribute: Returns the text to be inserted.
+    */
+    action GetText(integer startIndex, integer endIndex) returns text
+        return textValue:GetSubtext(startIndex, endIndex)
+    end
+
+    /*
+    This action returns the total number of characters of text in the TextField.
+    */
+    action GetSize returns integer
+        return textValue:GetSize()
+    end
+    /*
+        This action returns true if the text field is empty.
+    */
+    action Empty
+        TextChangeEvent changeEvent
+        changeEvent:Initialize(me, "", GetText(), 0)
+
+        textValue = ""
+        caretCharacter = 0
+
+        if (moveView)
+            FitCharacterOnScreen(caretCharacter)
+        end
+        GetLineDrawables()
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+
+        NotifyTextChangeListeners(changeEvent)
+        EmptySelectionEvent(true)
+    end
+    /*
+        This action sets the text in the text field to a specified value.
+
+        Attribute: Parameter value the text to be placed in the text field.
+    */
+    action SetText(text value)
+        TextChangeEvent changeEvent
+        changeEvent:Initialize(me, value, GetText(), 0)
+
+        textValue = value
+        caretCharacter = 0
+
+        if (moveView)
+            FitCharacterOnScreen(caretCharacter)
+        end
+        GetLineDrawables()
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+
+        NotifyTextChangeListeners(changeEvent)
+        EmptySelectionEvent(true)
+    end
+    /*
+        This action adds to the text in the text field a specified value at the end.
+
+        Attribute: Parameter value the text to be placed at the end of the text field.
+    */
+    action AppendToText(text value)
+        TextChangeEvent changeEvent
+        changeEvent:Initialize(me, value, "", textValue:GetSize())
+        
+        textValue = textValue + value
+
+        NotifyTextChangeListeners(changeEvent)
+        EmptySelectionEvent(true)
+    end
+    /*
+        This action selects the text in the text field from a specified index to
+        another specified end index.
+
+        Attribute: Parameter startIndex the first character index in the selection.
+        Attribute: Parameter endIndex the last character index in the selection.  
+    */
+    action Select(integer startIndex, integer endIndex)
+        Select(startIndex, endIndex, true)
+    end
+    /*
+        This action selects the text in the text field from a specified index to
+        another specified end index.
+
+        Attribute: Parameter startIndex the first character index in the selection.
+        Attribute: Parameter endIndex the last character index in the selection.  
+        Attribute: Parameter caretAtEnd true if the caret should be displayed at the end of the text. 
+    */
+    action Select(integer startIndex, integer endIndex, boolean caretAtEnd)
+        if startIndex < 0
+            startIndex = 0
+        end
+
+        if endIndex > textValue:GetSize()
+            endIndex = textValue:GetSize()
+        end
+
+        selection:Set(startIndex, endIndex, caretAtEnd, false)
+        UpdateVisualSelection()
+    end
+    /*
+        This action gets the selection from the text field.
+
+        Attribute: Returns the TextFieldSelection object.
+    */
+    action GetSelection returns TextFieldSelection
+        return selection
+    end
+
+    action AddTextChangeListener(TextChangeListener listener)
+        textChangeListeners:Add(listener)
+    end
+
+    action RemoveTextChangeListener(TextChangeListener listener)
+        textChangeListeners:Remove(listener)
+    end
+
+    action GetTextChangeListeners returns Array<TextChangeListener>
+        return textChangeListeners
+    end
+
+    private action NotifyTextChangeListeners(TextChangeEvent event)
+        integer counter = 0
+        repeat while counter < textChangeListeners:GetSize()
+            textChangeListeners:Get(counter):TextChanged(event)
+            counter = counter + 1
+        end
+        GameStateManager manager
+        manager:GetInput():NotifyTextChangeListeners(event)
+    end
+
+    action GetCurrentEditState returns TextFieldEditState
+        TextFieldEditState state
+        state:Set(GetText(), GetCaretPosition(), GetSelection())
+        return state
+    end
+
+    action SetFromEditState(TextFieldEditState state)
+        textValue = state:GetText()
+        SetCaretToIndex(state:GetCaretPosition())
+
+        Resize()
+
+        FitCharacterOnScreen(caretCharacter)
+        GetLineDrawables()
+        caretX = PositionCaret()
+        ResetCaretBlinkTimer()
+
+        Select(state:GetStartIndex(), state:GetEndIndex(), state:IsCaretAtEnd())
+        
+    end
+
+    action GetTextFieldEditManager returns TextFieldEditManager
+        return editManager
+    end
+
+    action GetTokenStartIndex returns integer
+        return GetTokenStartIndex(GetCaretPosition())
+    end
+
+    /*
+    This action finds the start index of the first token before the given search
+    index. If the search index is located in the middle of a token, the index
+    returned will be for that token. If the search index is exactly at the
+    beginning of a token, the start index of the previous token will be returned
+    instead.
+
+    Attribute: Parameter searchIndex The global index within the text to begin the search from.
+    Attribute: Returns A global index pointing to the beginning of the first token before the search index.
+    */
+    action GetTokenStartIndex(integer searchIndex) returns integer
+        boolean tokenIsDone = false
+        boolean leadingWhiteSpace = false
+        text currentToken = ""
+        text textValue = GetText()
+        integer currentIndex = searchIndex
+        integer beginIndex = searchIndex
+        text previousCharacter = ""
+        
+        //if the caret is already at the beginning of the textField
+        if searchIndex = 0
+            tokenIsDone = true
+        end
+
+        repeat while not(tokenIsDone)
+            if 0 < currentIndex
+                previousCharacter = textValue:GetCharacter(currentIndex - 1)
+                if(IsWhiteSpace(previousCharacter))   //this is the end of the token or the beginning of a token
+                    if beginIndex = currentIndex //this is the beginning of the token
+                        leadingWhiteSpace = true
+                        repeat while ((IsWhiteSpace(previousCharacter)) and (not(tokenIsDone)))   //skip the initial whitespace
+                            currentToken = currentToken + previousCharacter
+                            currentIndex = currentIndex - 1
+                            if currentIndex > 0
+                                previousCharacter = textValue:GetCharacter(currentIndex - 1)
+                            else
+                                tokenIsDone = true
+                            end
+                        end
+                    else    //this is the end of the token
+                        tokenIsDone = true
+                    end
+
+                elseif(IsSpecialCharacter(previousCharacter))   //this is the end of the token or the beginning of a token
+                    if ((beginIndex = currentIndex) or (leadingWhiteSpace)) //this is the beginning of the token
+                        currentToken = currentToken + previousCharacter
+                        if ((currentIndex - 1) > 0)
+                            if(IsDoubleSpecialCharacter(textValue:GetCharacter(currentIndex - 2), previousCharacter)) //check to see if this token has one or two special characters associated with it
+                                currentToken = currentToken + textValue:GetCharacter(currentIndex - 2)
+                            end
+                        end
+                    end
+                    tokenIsDone = true
+                else    //add the character to the current token
+                    leadingWhiteSpace = false
+                    currentToken = currentToken + previousCharacter
+                    currentIndex = currentIndex - 1
+                    if currentIndex > 0
+                        previousCharacter = textValue:GetCharacter(currentIndex - 1)
+                    else
+                        tokenIsDone = true
+                    end
+                end
+            else
+                tokenIsDone = true
+            end
+            
+        end
+        return beginIndex - currentToken:GetSize()  
+    end
+
+    action GetNextTokenStartIndex returns integer
+        return GetNextTokenStartIndex(GetCaretPosition())
+    end
+
+    /*
+    This action finds the start index of the next token after the given search
+    index. If the search index is located at the start of a token, the index
+    returned will be for the start of the next token.
+
+    Attribute: Parameter searchIndex The global index within the text to begin the search from.
+    Attribute: Returns A global index pointing to the start of the next token after the search index.
+    */
+    action GetNextTokenStartIndex(integer searchIndex) returns integer
+        boolean tokenIsDone = false
+        boolean isSpecialCharacterToken = false
+        text currentToken = ""
+        text textValue = GetText()
+        integer currentIndex = searchIndex
+        integer beginIndex = searchIndex
+        text nextCharacter = ""
+
+        if searchIndex = textValue:GetSize()
+            tokenIsDone = true
+        end
+
+        repeat while not(tokenIsDone)
+            if currentIndex < textValue:GetSize()
+                nextCharacter = textValue:GetCharacter(currentIndex)
+                if IsWhiteSpace(nextCharacter)  //skip whitespace at the end of the token to get to the beginning of the next token
+                    repeat while ((IsWhiteSpace(nextCharacter)) and (not(tokenIsDone)))
+                        currentToken = currentToken + nextCharacter
+                        currentIndex = currentIndex + 1
+                        if currentIndex < textValue:GetSize()
+                            nextCharacter = textValue:GetCharacter(currentIndex)
+                        else    //end of the textField, token is done
+                            tokenIsDone = true
+                        end
+                    end
+                    tokenIsDone = true
+                elseif IsSpecialCharacter(nextCharacter)    //signals the end of a token OR the beginning of a special token
+                    if beginIndex = currentIndex    //beginning of a special token
+                        isSpecialCharacterToken = true
+                        currentToken = currentToken + nextCharacter
+                        currentIndex = currentIndex + 1
+                        if currentIndex < textValue:GetSize()
+                            if(IsDoubleSpecialCharacter(nextCharacter, textValue:GetCharacter(currentIndex)))   //check if this is a double special character case
+                                currentToken = currentToken + textValue:GetCharacter(currentIndex)
+                                currentIndex = currentIndex + 1
+                                if currentIndex < textValue:GetSize()   //continue with the next character in case if there is whitespace following the special character
+                                    nextCharacter = textValue:GetCharacter(currentIndex)
+                                else    //end of the textField, token is done
+                                    tokenIsDone = true
+                                end
+                            end
+                        end
+                    else    //end of the token
+                        tokenIsDone = true
+                    end
+                else    //building a token OR the end of a special token
+                    if beginIndex not= currentIndex and isSpecialCharacterToken //end of a special token
+                        tokenIsDone = true
+                    else    //building a token
+                        currentToken = currentToken + nextCharacter
+                        currentIndex = currentIndex + 1
+                        if currentIndex < textValue:GetSize()
+                            nextCharacter = textValue:GetCharacter(currentIndex)
+                        else    //end of the textField, token is done
+                            tokenIsDone = true
+                        end
+                    end
+                end
+            else
+                tokenIsDone = true
+            end
+        end
+        if beginIndex + currentToken:GetSize() < textValue:GetSize()
+            return beginIndex + currentToken:GetSize()
+        else
+            return textValue:GetSize()
+        end
+    end
+
+    /*
+    This action finds the end index of the first token after the caret within
+    the TextBox. If the caret is located in the middle of a token, the index
+    returned will be for that token. If the caret is exactly at the end of
+    a token, the end index of the next token will be returned instead.
+
+    Attribute: Returns A global index pointing to the end of the first token after the caret.
+    */
+    action GetTokenEndIndex returns integer
+        return GetTokenEndIndex(GetCaretPosition())
+    end
+
+    /*
+    This action finds the end index of the first token after the given search
+    index. If the search index is located in the middle of a token, the index
+    returned will be for that token. If the search index is exactly at the
+    end of a token, the end index of the next token will be returned
+    instead.
+
+    Attribute: Parameter searchIndex The global index within the text to begin the search from.
+    Attribute: Returns A global index pointing to the end of the first token after the search index.
+    */
+    action GetTokenEndIndex(integer searchIndex) returns integer
+        boolean tokenIsDone = false
+        text currentToken = ""
+        text textValue = GetText()
+        integer currentIndex = searchIndex
+        integer beginIndex = searchIndex
+        text currentCharacter = ""
+        text nextCharacter = ""
+        if textValue:IsEmpty()
+            return 0
+        elseif searchIndex >= GetSize()
+            return GetSize()
+        end
+
+        //if the initial whitespace is a lineFeed or CarriageReturn, return the token as complete and start the next token
+        nextCharacter = textValue:GetCharacter(currentIndex)
+        if nextCharacter = nextCharacter:GetCarriageReturn()
+            currentIndex = currentIndex + 1
+            currentToken = currentToken + nextCharacter
+            if (currentIndex < textValue:GetSize())
+                nextCharacter = textValue:GetCharacter(currentIndex)
+            end
+            tokenIsDone = true  
+        end
+
+        if nextCharacter = nextCharacter:GetLineFeed()
+            currentIndex = currentIndex + 1
+            currentToken = currentToken + nextCharacter
+            tokenIsDone = true
+        end
+
+        if tokenIsDone
+            return beginIndex + currentToken:GetSize()
+        end
+
+       repeat while not(tokenIsDone)
+            if currentIndex < textValue:GetSize()
+                nextCharacter = textValue:GetCharacter(currentIndex)               
+                //signals the end of the token  
+                if (IsSpecialCharacter(nextCharacter))
+                    if (beginIndex = currentIndex)  //check for groups of special characters
+                        currentToken = nextCharacter
+                        if nextCharacter = "("
+                            if (currentIndex + 1) < textValue:GetSize()
+                                if textValue:GetCharacter(currentIndex + 1) = ")"
+                                    currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                end
+                            end
+                        end
+                        if nextCharacter = "<"
+                            if (currentIndex + 1) < textValue:GetSize()
+                                if textValue:GetCharacter(currentIndex + 1) = "<"
+                                    currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                end
+                            end
+                        end
+                        if nextCharacter = ">"
+                            if (currentIndex + 1) < textValue:GetSize()
+                                if textValue:GetCharacter(currentIndex + 1) = ">"
+                                    currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                end
+                            end
+                        end
+                        if nextCharacter = "/"
+                            if (currentIndex + 1) < textValue:GetSize()
+                                if textValue:GetCharacter(currentIndex + 1) = "/"
+                                    currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                end
+                            end
+                        end
+                    end
+                        tokenIsDone = true
+                            
+                elseif (IsWhiteSpace(nextCharacter))
+                    if  currentIndex not= beginIndex
+                        tokenIsDone = true
+                    
+                    elseif currentIndex = beginIndex  and ((currentIndex + 1) < textValue:GetSize())//skip initial whitespace
+                        currentToken = currentToken + nextCharacter
+                        currentIndex = currentIndex + 1
+                        nextCharacter = textValue:GetCharacter(currentIndex)
+                        if (IsWhiteSpace(nextCharacter))
+                            repeat while IsWhiteSpace(nextCharacter) and ((currentIndex + 1) < textValue:GetSize())
+                                currentToken = currentToken + nextCharacter
+                                currentIndex = currentIndex + 1
+                                nextCharacter = textValue:GetCharacter(currentIndex)
+                            end 
+                            nextCharacter = textValue:GetCharacter(currentIndex + 1)
+                        elseif (IsSpecialCharacter(nextCharacter))
+                            currentToken = currentToken + nextCharacter
+                            if nextCharacter = "("
+                                if (currentIndex + 1) < textValue:GetSize()
+                                    if textValue:GetCharacter(currentIndex + 1) = ")"
+                                        currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                    end
+                                end
+                            end
+                            if nextCharacter = "<"
+                                if (currentIndex + 1) < textValue:GetSize()
+                                    if textValue:GetCharacter(currentIndex + 1) = "<"
+                                        currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                    end
+                                end
+                            end
+                            if nextCharacter = ">"
+                                if (currentIndex + 1) < textValue:GetSize()
+                                    if textValue:GetCharacter(currentIndex + 1) = ">"
+                                        currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                    end
+                                end
+                            end
+                            if nextCharacter = "/"
+                                if (currentIndex + 1) < textValue:GetSize()
+                                    if textValue:GetCharacter(currentIndex + 1) = "/"
+                                        currentToken = currentToken + textValue:GetCharacter(currentIndex + 1)
+                                    end
+                                end
+                            end
+                            tokenIsDone = true 
+
+                        else
+                            if (currentIndex + 1) < textValue:GetSize()
+                                nextCharacter = textValue:GetCharacter(currentIndex + 1)
+                            else
+                                tokenIsDone = true
+                            end
+                        end                    
+                    else
+                        tokenIsDone = true
+                    end
+                else
+                    currentToken = currentToken + nextCharacter
+                    currentIndex = currentIndex + 1
+                end
+            else
+                beginIndex = textValue:GetSize()
+                currentToken = ""
+                tokenIsDone = true
+            end
+        end
+        if beginIndex + currentToken:GetSize() < textValue:GetSize()
+            return beginIndex + currentToken:GetSize()
+        else
+            return textValue:GetSize()
+        end
+    end
+
+    private action IsDoubleSpecialCharacter(text first, text second) returns boolean
+        boolean isDoubleSpecialCharacter = false
+        if (first = "(" and second = ")")
+            isDoubleSpecialCharacter = true
+        end
+        if (first = ">" and second = ">")
+            isDoubleSpecialCharacter = true
+        end
+        if (first = "<" and second = "<")
+            isDoubleSpecialCharacter = true
+        end
+        if (first = "/" and second = "/")
+            isDoubleSpecialCharacter = true
+        end
+        return isDoubleSpecialCharacter
+    end
+
+    private action IsSpecialCharacter(text value) returns boolean
+        boolean isSpecialCharacter = false
+        if value = "." or value = "/" or value = "*" or value = "-" or value = "+"
+        or value = "(" or value = ")" or value = ":" or value = "<" or value = ">"
+        or value = ";" or value = "," or value = "=" or value = value:GetDoubleQuote()
+            isSpecialCharacter = true
+        end
+        return isSpecialCharacter
+    end
+
+    private action IsWhiteSpace(text value) returns boolean
+        boolean isWhiteSpace = false
+        if value = " " or value = value:GetCarriageReturn() or value = value:GetLineFeed() or 
+        value = value:GetTab()
+            isWhiteSpace = true
+        end
+        return isWhiteSpace
+    end
+
+    private action IsBeginningOfToken(integer index) returns boolean
+        // Used by the accessibility system, which can ignore the "private" flag.
+        // It's not clear if this will be necessary in the future.
+
+        if index = 0
+            return true
+        end
+
+        if index >= textValue:GetSize()
+            return false
+        end
+
+        text previous = textValue:GetCharacter(index - 1)
+        text current = textValue:GetCharacter(index)
+
+        if IsWhiteSpace(current)
+            return false
+        end
+
+        if IsWhiteSpace(previous)
+            return true
+        end
+
+        if (IsSpecialCharacter(previous) and not IsSpecialCharacter(current))
+            return true
+        end
+
+        if (IsSpecialCharacter(current))
+            if current = ")"
+                if previous = "("
+                    return false
+                end
+            end
+            if current = ">"
+                if previous = ">"
+                    return false
+                end
+            end
+            if current = "<"
+                if previous = "<"
+                    return false
+                end
+            end
+            if current = "/"
+                if previous = "/"
+                    return false
+                end
+            end
+
+            return true
+        end
+
+        return false
+    end
+
+    /*
+    This is set by the TextFieldSavePreviousCaretPositionBehavior for use by the 
+    TextFieldSelectToMouseClickBehavior in determining the selection indices based on 
+    the caret position prior to the mouse click
+    */
+    action SetPreviousCaretPosition(integer previous)
+        previousCaretPosition = previous
+    end
+    /*
+    This action gets the TextFieldSavePreviousCaretPositionBehavior position for use by the 
+    TextFieldSelectToMouseClickBehavior.
+    */
+    action GetPreviousCaretPosition returns integer
+        return previousCaretPosition
+    end
+    
+    action AddTextStyle(text name, TextStyle style)
+        if style = undefined
+            return now
+        end
+        integer i = 0
+        boolean inserted = false
+        
+        integer index = style:GetIndex()
+
+        repeat while i < textStyles:GetSize()
+            TextStyle temp = textStyles:Get(i)
+            if temp not= undefined and index < temp:GetIndex()
+                textStyles:Add(i, style)
+                inserted = true
+                i = textStyles:GetSize()
+            end
+            i = i + 1
+        end
+
+        if inserted = false
+            textStyles:AddToEnd(style)
+        end
+
+        if name not= ""
+            styleTable:Add(name, style)
+        end
+
+        // Layout will recalculate all of the styles anyway. If we aren't laying out, add the effects of the single new style.
+        if NeedsLayout() = false
+            AddTextStyleHighlight(style)
+            UpdateTextStylesAt(style:GetIndex(), style:GetSize())
+        end
+    end
+
+    private action AddTextStyleHighlight(TextStyle style)
+        TextHighlight highlight = style:GetHighlight()
+                
+        if highlight not= undefined
+            integer styleStart = style:GetIndex()
+            integer styleEnd = styleStart + style:GetSize()
+
+            number targetY = GetBottomPadding()
+            number highlightHeight = font:GetLineHeight()
+
+            Drawable draw = undefined
+            if highlight:IsLineHighlight()
+                draw = highlight:GetDrawable(GetWidth(), highlightHeight)
+                draw:SetPosition(0, targetY)
+            else
+                integer characterCounter = 0
+                number width = 0
+                number x = leftCharacterPadding
+                integer size = textValue:GetSize()
+
+                repeat while characterCounter < size
+                    Glyph glyph = font:GetGlyph(textValue:GetCharacter(characterCounter))
+
+                    /*
+                    If we haven't reached the styled portion of the
+                    text, advance the x position that we'll place
+                    the highlight at.
+                    */
+                    if (characterCounter < styleStart)
+                        x = x + glyph:horizontalAdvance
+
+                    /*
+                    If we've reached the styled portion and we
+                    aren't past the end, increase the width of the
+                    eventual highlight.
+                    */
+                    elseif (characterCounter < styleEnd)
+                        width = width + glyph:horizontalAdvance
+                    
+                    /*
+                    If we're past the style's end point, then we're
+                    done. Exit the loop and generate the highlight.
+                    */
+                    else
+                        characterCounter = size
+                    end
+                    characterCounter = characterCounter + 1
+                end
+
+                draw = highlight:GetDrawable(width, highlightHeight)
+                draw:SetPosition(x, targetY)
+            end
+
+            if draw not= undefined
+                if highlight:IsVisibleWhileSelected()
+                    background:AddPostSelectionHighlight(highlight, draw)
+                else
+                    background:AddPreSelectionHighlight(highlight, draw)
+                end
+            end
+        end
+    end
+
+    // Update the characters starting at the given index. Sets them to correct colors / styling.
+    private action UpdateTextStylesAt(integer index, integer length)
+        integer endIndex = index + length
+        integer currentGlobalIndex = index
+
+        integer selectionStart = selection:GetStartIndex()
+        integer selectionEnd = selection:GetEndIndex()
+
+        // Because styles are sorted from lowest starting index to highest, there's never any need to check styles earlier than the last one we successfully applied.
+        // On the first pass of the loop, we haven't checked any of them yet, so start from the beginning.
+        integer firstStyleIndex = 0
+
+        ColorGroup defaultFontColor = GetFontColor()
+        ColorGroup defaultSelectedColor = GetSelectionFontColor()
+
+        Array<Drawable> lineDrawables = background:GetCharacters()
+        integer i = index
+        repeat while lineDrawables not= undefined and currentGlobalIndex <= endIndex
+            if i < lineDrawables:GetSize()
+                Drawable glyph = lineDrawables:Get(i)
+                // False if no text styles were applied to the character, true if we did apply something.
+                boolean applied = false
+    
+                ColorGroup fontColor = defaultFontColor
+                ColorGroup selectedColor = defaultSelectedColor
+    
+                integer styleIndex = firstStyleIndex
+                repeat while styleIndex < textStyles:GetSize()
+                    TextStyle style = textStyles:Get(styleIndex)
+                    // Because the array is sorted from lowest to highest index,
+                    // if this style's index is too large, all of the remainder
+                    // will be as well.
+                    if currentGlobalIndex < style:GetIndex()
+                        styleIndex = textStyles:GetSize()
+                    elseif currentGlobalIndex >= style:GetIndex() and currentGlobalIndex < style:GetIndex() + style:GetSize()
+                        if style:GetColor() not= undefined
+                            fontColor = style:GetColor()
+                        end
+                        if style:GetSelectionColor() not= undefined
+                            selectedColor = style:GetSelectionColor()
+                        end
+                    end
+                    styleIndex = styleIndex + 1
+                end
+    
+                // Set the glyph's color, based on whether or not it is part of the selected area.
+                if currentGlobalIndex >= selectionStart and currentGlobalIndex < selectionEnd
+                    glyph:SetColor(selectedColor)
+                else
+                    glyph:SetColor(fontColor)
+                end
+            end
+
+            i = i + 1
+            currentGlobalIndex = currentGlobalIndex + 1
+        end
+    end
+
+    action RemoveTextStyle(text name) returns boolean
+        if styleTable:HasKey(name)
+            TextStyle style = styleTable:RemoveKey(name)
+            textStyles:Remove(style)
+            
+            // If layout is going to happen, it will handle the styles anyway. If not, manually deal with the single style.
+            if NeedsLayout() = false
+                ClearTextStyle(style)
+            end
+
+            return true
+        else
+            return false
+        end
+    end
+
+    action GetTextStyle(text name) returns TextStyle
+        if styleTable:HasKey(name)
+            TextStyle style = styleTable:GetValue(name)
+            return style
+        else
+            return undefined
+        end
+    end
+
+    action HasTextStyle(text name) returns boolean
+        if styleTable:HasKey(name)
+            return true
+        else
+            return false
+        end
+    end
+
+    action RemoveTextStyle(TextStyle style) returns boolean
+        boolean hadValue = textStyles:Remove(style)
+        if hadValue = false
+            return false
+        end
+
+        styleTable:RemoveValue(style)
+
+        // If layout is going to happen, it will handle the styles anyway. If not, manually deal with the single style.
+        if NeedsLayout() = false
+            ClearTextStyle(style)
+        end
+
+        return true
+    end
+
+    // Removes any effects this text style is currently having on the text by deleting its highlight and updating the font at the style's indices.
+    // To be used internally after the style is removed from the table via RemoveTextStyle.
+    private action ClearTextStyle(TextStyle style)
+        TextHighlight highlight = style:GetHighlight()
+        if highlight not= undefined
+            if highlight:IsVisibleWhileSelected()
+                background:RemovePostSelectionHighlight(highlight)
+            else
+                background:RemovePreSelectionHighlight(highlight)
+            end
+        end
+
+        UpdateTextStylesAt(style:GetIndex(), style:GetSize())
+    end
+
+    action GetTextStylesAtIndex(integer index) returns Array<TextStyle>
+        Array<TextStyle> styles
+        integer i = 0
+        repeat while i < textStyles:GetSize()
+            TextStyle style = textStyles:Get(i)
+            if style:GetIndex() <= index and (style:GetIndex() + style:GetSize()) >= index
+                styles:Add(style)
+            elseif style:GetIndex() > index
+                /*
+                Because the TextStyles are sorted from lowest to highest start
+                index, once we've found a style with an excessive start index,
+                we know all of the remaining ones will too.
+                */
+                i = textStyles:GetSize()
+            end
+
+            i = i + 1
+        end
+
+        return styles
+    end
+
+    action EmptyTextStyles
+        textStyles:Empty()
+        styleTable:Empty()
+
+        // If layout is going to happen, it'll automatically recalculate highlight info anyway.
+        // Otherwise, remove highlights and set all of the drawables back to default colors.
+        if NeedsLayout() = false
+            background:EmptyPreSelectionHighlights()
+            background:EmptyPostSelectionHighlights()
+            UpdateTextStylesAt(0, GetSize())
+        end
+    end
+    
+    /*
+    Increases the index of TextStyles by the given amount, used during insert
+    actions. For example, if three characters are added to the text, offset
+    the start index of all styles after the inserted text by 3.
+    */
+    private action IncrementStyleIndices(integer index, integer offset)
+        integer counter = 0
+        repeat while counter < textStyles:GetSize()
+            TextStyle style = textStyles:Get(counter)
+            integer styleIndex = style:GetIndex()
+            if styleIndex >= index
+                style:SetIndex(styleIndex + offset)
+            elseif styleIndex <= index and styleIndex + style:GetSize() > index
+                style:SetSize(style:GetSize() + offset)
+            end
+            counter = counter + 1
+        end
+    end
+
+    /*
+    Decreases the index of TextStyles by the given amount, used during delete
+    actions. For example, if three characters are removed from the text, reduce
+    the start index of all styles after the deleted text by 3.
+    */
+    private action DecrementStyleIndices(integer index, integer offset)
+        integer counter = 0
+
+        // TextStyles that should be deleted are stored and then deleted all at
+        // once at the end of the action.
+        Array<TextStyle> toDelete
+
+        repeat while counter < textStyles:GetSize()
+            TextStyle style = textStyles:Get(counter)
+            integer styleIndex = style:GetIndex()
+            integer styleSize = style:GetSize()
+            
+            if index <= styleIndex
+                // The entire text represented by this TextStyle is being removed.
+                if index + offset > styleIndex + styleSize
+                    toDelete:Add(style)
+
+                // The deleted text is entirely before this TextStyle's contents.
+                elseif index + offset <= styleIndex
+                    style:SetIndex(styleIndex - offset)
+
+                // The deleted text is partially in this TextStyle's contents
+                // and partially outside of it.
+                else
+                    integer outer = styleIndex - index
+                    style:SetIndex(styleIndex - outer)
+                    style:SetSize(styleSize - (offset - outer))
+                end
+            elseif index > styleIndex
+                // The adjusted portion is beyond this TextStyle.
+                if index >= styleIndex + styleSize
+                    // No adjustments necessary.
+
+                // A portion of the text in this TextStyle is being removed.
+                elseif index + offset <= styleIndex + style:GetSize()
+                    style:SetSize(styleSize - offset)
+
+                // The deleted text includes the latter portion of this TextStyle's
+                // contents and text that's outside of this TextStyle.
+                else
+                    style:SetSize(index - styleIndex)
+                end
+            end
+
+            counter = counter + 1
+        end
+
+        counter = 0
+        repeat while counter < toDelete:GetSize()
+            RemoveTextStyle(toDelete:Get(counter))
+            counter = counter + 1
+        end
+    end
+    
+/*
+        This action is used when a control is moused over by the mouse.
+    */
+    action BeginMouseOver
+        parent:Control:BeginMouseOver()
+        background:BeginMouseOver()
+    end
+    /*
+        This action is used when a control is moused over and it ends.
+    */
+    action EndMouseOver
+        parent:Control:EndMouseOver()
+        background:EndMouseOver()
+    end
+end

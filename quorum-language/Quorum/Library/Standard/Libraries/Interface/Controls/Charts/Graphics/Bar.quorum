@@ -1,0 +1,313 @@
+package Libraries.Interface.Controls.Charts.Graphics
+
+use Libraries.Containers.Array
+use Libraries.Interface.Layouts.LayoutProperties
+use Libraries.Interface.Controls.Control
+use Libraries.Game.Graphics.ColorGroup
+use Libraries.Interface.Controls.Charts.Chart
+use Libraries.Compute.BitwiseOperations
+use Libraries.Game.Graphics.Shaders.ShaderManager
+use Libraries.Game.Graphics.Shaders.ShaderProgram
+use Libraries.Game.Graphics.Shaders.ControlShaderProgram
+use Libraries.Interface.Controls.Charts.SharedBarChartParent
+use Libraries.Interface.Controls.Charts.ChartOptions
+use Libraries.Game.Graphics.Shaders.LinePatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.CrosshatchPatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.HollowCirclePatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.SolidCirclePatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.HollowBoxPatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.SolidBoxPatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.DashedLinePatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.HollowTrianglePatternControlShaderProgram
+use Libraries.Game.Graphics.Shaders.SolidTrianglePatternControlShaderProgram
+use Libraries.Game.GameStateManager
+
+/*
+The Bar class is a ChartDrawable that stores information for each 
+indiviual bar. Bar contains a numerical value to determine the size 
+of the bar within a chart.
+
+Attribute: Example
+
+use Libraries.Interface.Controls.Charts.Graphics.Bar
+class Main
+    action Main
+        // Make bar
+        Bar bar
+    
+        // Set value
+        bar:SetValue(20.0)
+    
+        // Get value
+        number x = bar:GetValue()
+    end
+end
+*/
+
+class Bar is ChartDrawable
+    number value = 0 
+    BitwiseOperations bits
+
+    /*
+        This action returns the actual value associated with this bar.
+        The parent Chart axis has a total value to which this value will be compared
+        to get a percent for the appropriate size.
+    
+        Attribute: Returns a number value
+    */
+    action GetValue returns number
+        return value
+    end
+    /*
+        This action sets the actual value associated with this bar.
+        The parent Chart axis has a total value to which this value will be compared
+        to get a percent for the appropriate size.
+    
+        Attribute: Parameter value a number value associated with the bar.
+    */
+    action SetValue(number value)
+        me:value = value
+        if GetBarGroup() not= undefined
+            GetBarGroup():RecalculateGroupValues()
+        end
+    end
+
+    /*
+        Link to the parent BarGroup.
+    */
+    action GetBarGroup returns BarGroup
+        return cast(BarGroup, GetGroup())
+    end
+
+    action LoadGraphics(LayoutProperties properties)
+        // Render this Drawable with the Control Shader.
+        if GetShaderProgram() = undefined
+            GameStateManager gameState
+            ShaderManager manager = gameState:GetShaderManager()
+            ShaderProgram program = undefined
+            
+            if HasPattern()
+                integer pattern = GetPattern()
+                ChartOptions options
+                
+                if pattern = options:VERTICAL_LINES or pattern = options:HORIZONTAL_LINES or pattern = options:DIAGONAL_DOWN_LINES or pattern = options:DIAGONAL_UP_LINES
+                    if manager:HasShaderProgram("Line Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Line Pattern Control Shader Program")
+                    else
+                        LinePatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:PLAIN_CROSSHATCH or pattern = options:DIAGONAL_CROSSHATCH
+                    if manager:HasShaderProgram("Crosshatch Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Crosshatch Pattern Control Shader Program")
+                    else
+                        CrosshatchPatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:HOLLOW_CIRCLES
+                    if manager:HasShaderProgram("Hollow Circle Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Hollow Circle Pattern Control Shader Program")
+                    else
+                        HollowCirclePatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:SOLID_CIRCLES
+                    if manager:HasShaderProgram("Solid Circle Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Solid Circle Pattern Control Shader Program")
+                    else
+                        SolidCirclePatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:HOLLOW_BOXES
+                    if manager:HasShaderProgram("Hollow Box Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Hollow Box Pattern Control Shader Program")
+                    else
+                        HollowBoxPatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:SOLID_BOXES
+                    if manager:HasShaderProgram("Solid Box Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Solid Box Pattern Control Shader Program")
+                    else
+                        SolidBoxPatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:PINPOINT_DASHES
+                    if manager:HasShaderProgram("Dashed Line Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Dashed Line Pattern Control Shader Program")
+                    else
+                        DashedLinePatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:HOLLOW_TRIANGLES
+                    if manager:HasShaderProgram("Hollow Triangle Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Hollow Triangle Pattern Control Shader Program")
+                    else
+                        HollowTrianglePatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                elseif pattern = options:SOLID_TRIANGLES
+                    if manager:HasShaderProgram("Solid Triangle Pattern Control Shader Program")
+                        program = manager:GetShaderProgram("Solid Triangle Pattern Control Shader Program")
+                    else
+                        SolidTrianglePatternControlShaderProgram patternShader
+                        patternShader:Compile()
+                        program = patternShader
+                    end
+                else
+                    // Default case: basic control shader, without pattern
+                    if manager:HasShaderProgram("Control Shader Program")
+                        program = manager:GetShaderProgram("Control Shader Program")
+                    else
+                        ControlShaderProgram controlShader
+                        controlShader:Compile()
+                        program = controlShader
+                    end
+                end
+            else
+                if manager:HasShaderProgram("Control Shader Program")
+                    program = manager:GetShaderProgram("Control Shader Program")
+                else
+                    ControlShaderProgram controlShader
+                    controlShader:Compile()
+                    program = controlShader
+                end
+            end
+            
+            SetShaderProgram(program)
+        end
+
+        parent:Control:LoadGraphics(properties)
+    end
+    /*
+        This action gets the border color for the bar.
+    
+        Attribute: Returns a color of the bar border.
+    */
+    action GetBorderColor returns ColorGroup
+        if HasColorPropertyOverride("borderColor")
+            return parent:Control:GetBorderColor()
+        end
+
+        Chart chart = GetParentChart()
+        if chart not= undefined
+            return chart:GetBorderColor()
+        end
+
+        return parent:Control:GetBorderColor()
+    end
+    /*
+        This action gets the border color for the selected bar.
+    
+        Attribute: Returns a color of the selected bar border.
+    */
+    action GetSelectionBorderColor returns ColorGroup
+        if HasColorPropertyOverride("selectionBorderColor")
+            return parent:Control:GetBorderColor()
+        end
+
+        Chart chart = GetParentChart()
+        if chart not= undefined
+            return chart:GetSelectionBorderColor()
+        end
+
+        return parent:Control:GetBorderColor()
+    end
+    /*
+        This action gets the background color for the bar.
+    
+        Attribute: Returns a color of the bar background.
+    */
+    action GetBackgroundColor returns ColorGroup
+        return parent:Drawable:GetColorGroup()
+    end
+
+    action GetSelectionColor returns ColorGroup
+        return GetBackgroundColor()
+    end
+    /*
+        This action gets the border thickness for the bar from the parent bar chart.
+    
+        Attribute: Returns a border thickness number of the selected bar border.
+    */
+    action GetBorderThickness returns number
+        if HasNumberPropertyOverride("borderThickness")
+            return parent:Control:GetBorderThickness()
+        end
+
+        Chart chart = GetParentChart()
+        if chart is SharedBarChartParent
+            SharedBarChartParent barChart = cast(SharedBarChartParent, chart)
+            return barChart:GetBarBorderThickness()
+        end
+
+        return parent:Control:GetBorderThickness()
+    end
+    /*
+        This action gets the border style for the bar. This action returns a code 
+        representing which sides of the bars have borders, using the style constants from 
+        LayoutProperties (LEFT, RIGHT, TOP, BOTTOM, ALL, and NONE). By default, vertical 
+        bar charts have bar borders on all sides except the bottom, and horizontal bar charts 
+        have bar borders on all sides except the left.
+    
+        Attribute: Returns an integer representing the border style.
+    */
+    action GetBorderStyle returns integer
+        Chart chart = GetParentChart()
+        if chart is SharedBarChartParent
+            SharedBarChartParent barChart = cast(SharedBarChartParent, chart)
+            return barChart:GetBarBorderStyle()
+        end
+
+        return parent:Control:GetBorderStyle()
+    end
+
+    /*
+        This action returns true if the left border is present on the bar.
+    
+        Attribute: Returns true when the bar has a left border.
+    */
+    action HasLeftBorder returns boolean
+        LayoutProperties properties = GetDefaultLayoutProperties()
+        integer style = GetBorderStyle()
+        return bits:And(style, properties:LEFT) not= 0
+    end
+    /*
+        This action returns true if the top border is present on the bar.
+    
+        Attribute: Returns true when the bar has a top border.
+    */
+    action HasTopBorder returns boolean
+        LayoutProperties properties = GetDefaultLayoutProperties()
+        integer style = GetBorderStyle()
+        return bits:And(style, properties:TOP) not= 0
+    end
+    /*
+        This action returns true if the right border is present on the bar.
+    
+        Attribute: Returns true when the bar has a right border.
+    */
+    action HasRightBorder returns boolean
+        LayoutProperties properties = GetDefaultLayoutProperties()
+        integer style = GetBorderStyle()
+        return bits:And(style, properties:RIGHT) not= 0
+    end
+    /*
+        This action returns true if the bottom border is present on the bar.
+    
+        Attribute: Returns true when the bar has a bottom border.
+    */
+    action HasBottomBorder returns boolean
+        LayoutProperties properties = GetDefaultLayoutProperties()
+        integer style = GetBorderStyle()
+        return bits:And(style, properties:BOTTOM) not= 0
+    end
+end

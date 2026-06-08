@@ -1,0 +1,42 @@
+package Libraries.Interface.Behaviors.Controls
+
+use Libraries.Interface.Item
+use Libraries.Interface.Behaviors.Behavior
+use Libraries.Interface.Events.BehaviorEvent
+use Libraries.Interface.Events.MouseEvent
+use Libraries.Interface.Controls.TextBox
+use Libraries.Interface.Controls.PopupMenu
+use Libraries.Interface.Controls.TextField
+
+class TextBoxOpenPopupMenuBehavior is Behavior
+    action Run(BehaviorEvent event)
+Item item = event:GetItem()
+        TextBox box = undefined
+        TextField field = undefined
+        PopupMenu menu = undefined
+        
+        if item is TextBox
+            box = cast(TextBox, item)
+            menu = box:GetPopupMenu()
+        elseif item is TextField
+            field = cast(TextField, item)
+            menu = field:GetPopupMenu()
+        else
+return now
+        end
+
+        if menu = undefined
+            return now
+        end
+
+        if event:GetMouseEvent() not= undefined
+            menu:OpenAtCursor()
+        else
+            if box not= undefined
+menu:OpenAt(box:GetCaretGlobalX(), box:GetCaretGlobalY())
+            else
+                menu:OpenAt(field:GetCaretGlobalX(), field:GetCaretGlobalY())
+            end
+        end
+    end
+end

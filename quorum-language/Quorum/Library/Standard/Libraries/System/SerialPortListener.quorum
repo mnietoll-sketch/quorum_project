@@ -1,0 +1,9 @@
+package Libraries.System
+
+class SerialPortListener
+    action Closed
+    end
+
+    action ReceivedData(text data)
+    end
+end

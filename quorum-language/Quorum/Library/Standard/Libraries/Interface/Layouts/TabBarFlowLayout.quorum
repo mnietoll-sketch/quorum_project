@@ -1,0 +1,39 @@
+package Libraries.Interface.Layouts
+
+use Libraries.Containers.Array
+use Libraries.Interface.Item2D
+use Libraries.Interface.Controls.Control
+use Libraries.Interface.Controls.MenuBar
+use Libraries.Game.Graphics.Font
+use Libraries.Game.Graphics.Label
+
+/*This class is a blueprint for layouts used by the TabBar to position the Tabs of
+a TabPane. For implementations of this blueprint, see HorizontalTabFlowLayout and
+VerticalTabFlowLayout.*/
+class TabBarFlowLayout is Layout
+
+    boolean ignoreHidden = false
+    number offset = 0
+
+    /*
+    This action sets the starting position of the tabs. This is used to offset
+    the tab positions to allow for access to tabs that hang off the edge of the container.
+    */
+    action SetOffset(number offset)
+        me:offset = offset
+    end
+    
+    /*This action returns the starting position of the tabs. For a horizontal layout scheme, the
+offset represents an x-offset, and for a vertical scheme, it represents a y-offset.*/
+    action GetOffset returns number
+        return offset
+    end
+
+    action SetIgnoreHidden(boolean ignore)
+        ignoreHidden = ignore
+    end
+
+    action IsIgnoringHidden returns boolean
+        return ignoreHidden
+    end
+end

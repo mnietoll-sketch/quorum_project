@@ -1,0 +1,32 @@
+package Libraries.Interface.Views
+
+use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.Shaders.ShaderManager
+use Libraries.Game.Graphics.Shaders.ShaderProgram
+use Libraries.Game.Graphics.Shaders.DropShadowShaderProgram
+use Libraries.Game.GameStateManager
+
+class DropShadowView is DrawableView
+
+    on create
+        SetName("Drop Shadow View")
+    end
+
+    action Initialize
+        Color color
+        color:SetColor(1, 1, 1, 1)
+        LoadFilledRectangle(2, 2, color)
+
+        GameStateManager manager
+        ShaderManager shaderManager = manager:GetShaderManager()
+        ShaderProgram program = undefined
+        if shaderManager:HasShaderProgram("Drop Shadow Shader Program")
+            program = shaderManager:GetShaderProgram("Drop Shadow Shader Program")
+        else
+            DropShadowShaderProgram shaders
+            shaders:Compile()
+            program = shaders
+        end
+        SetShaderProgram(program)
+    end
+end

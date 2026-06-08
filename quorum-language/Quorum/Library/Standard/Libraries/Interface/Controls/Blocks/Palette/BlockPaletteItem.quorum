@@ -1,0 +1,358 @@
+package Libraries.Interface.Controls.Blocks.Palette
+
+use Libraries.Interface.Controls.Button
+use Libraries.Game.InputTable
+use Libraries.Game.InputSet
+use Libraries.Containers.Array
+use Libraries.Language.Compile.CompilerErrorManager
+use Libraries.Language.Compile.Parsing.QuorumLexer
+use Libraries.Language.Compile.Parsing.QuorumParser
+use Libraries.Language.Compile.Context.StartContext
+use Libraries.Language.Compile.Blocks.BlockPaletteItemParserToBlockListener
+use Libraries.Interface.Layouts.LayoutProperties
+use Libraries.Language.Compile.Context.StatementContext
+use Libraries.Interface.Controls.Blocks.Block
+use Libraries.Interface.Controls.Blocks.RootBlock
+use Libraries.Interface.Controls.Blocks.ActionCallBlock
+use Libraries.Interface.Controls.Blocks.EditBox
+use Libraries.Interface.Controls.Blocks.CodeEditor
+use Libraries.Interface.Controls.Blocks.BlockEnvironment
+use Libraries.Interface.Controls.Blocks.FreeformBlock
+use Libraries.Interface.Controls.Blocks.SingleLineBlock
+use Libraries.Interface.Events.FocusEvent
+use Libraries.Language.Compile.Symbol.Action
+use Libraries.Language.Compile.Location
+
+
+class BlockPaletteItem is Button, BlockEnvironment
+
+    BlockPalette palette = undefined
+    Array<Block> blocksToDrag = undefined
+    
+    text code = undefined
+    RootBlock root = undefined
+    Array<Block> visualBlocks
+    
+    // An action that will be used to generate the text, parameters, and typing of an action.
+    // Overrides the default compilation method for generating the block, if present.
+    Action templateAction = undefined
+    
+    on create
+        SetVerticalLayoutMode(parent:Control:STANDARD)
+        SetInputGroup("BlockPaletteItem")
+    end
+
+    action LoadGraphics(LayoutProperties properties)
+        if code not= undefined and root = undefined
+            CompilerErrorManager manager
+            QuorumLexer lexer
+            lexer:SetCompilerErrorManager(manager)
+            lexer:Read(code)
+            
+            QuorumParser parser
+            parser:SetCompilerErrorManager(manager)
+            parser:SetLexer(lexer)
+            StartContext start = parser:Start()
+            
+            BlockPaletteItemParserToBlockListener blockListener
+            blockListener:SetBlockEnvironment(me)
+            blockListener:SetQuorumLexer(lexer)
+            blockListener:SetRelatedAction(templateAction)
+            
+            if manager:IsCompilationErrorFree()
+            blockListener:SetStartContext(start)
+            root = blockListener:Update(0, code:GetSize())
+            elseif code = "" or code = "Blank"
+                FreeformBlock newBlock
+                newBlock:SetLocalStartLine(0)
+                newBlock:SetLocalEndLine(0)
+                newBlock:SetLocalStartIndex(0)
+                newBlock:SetLocalEndIndex(0)
+                newBlock:SetScopeDepth(0)
+                
+                RootBlock newRoot
+                root = newRoot
+                root:SetBlockEnvironment(me)
+                root:Add(cast(Block, newBlock))
+                
+                newBlock:Setup()
+                
+            else
+                manager:Empty()
+                StatementContext statement = parser:Statement()
+                parser:Statement()
+                
+                if statement = undefined
+                    FreeformBlock newBlock
+                    newBlock:SetLocalStartLine(0)
+                    newBlock:SetLocalEndLine(0)
+                    newBlock:SetLocalStartIndex(0)
+                    newBlock:SetLocalEndIndex(code:GetSize())
+                    newBlock:SetScopeDepth(0)
+                
+                    RootBlock newRoot
+                    root = newRoot
+                    root:SetBlockEnvironment(me)
+                    root:Add(cast(Block, newBlock))
+                    
+                    newBlock:Setup()
+                else
+                    blockListener:SetStartContext(undefined)
+                    root = blockListener:ParseStatement(statement)
+                end
+            end
+            
+number height = 0        
+            Block block = root
+            repeat until block = undefined
+                block:SetInterfaceScale(GetInterfaceScale()) 
+                block:SetFontSize(GetFontSize())
+                if block is SingleLineBlock
+                    Block copy = block:CopyToPlaceholder()
+                    copy:LoadGraphics(copy:GetDefaultLayoutProperties())
+                    copy:SetInputGroup("")
+                    copy:SetInterfaceScale(GetInterfaceScale())
+                    copy:SetFocusable(false)
+                    Add(copy)
+                    visualBlocks:Add(copy)
+                    
+                    SingleLineBlock singleBlock = cast(SingleLineBlock, copy)
+                    
+                    height = height + GetLineHeight(0) + singleBlock:GetVisibleDetailLabelsHeight()
+                end
+    
+                block = block:GetNextBlock()
+            end
+        
+            SetPixelHeight(height)
+            SetHeight(height)
+            RequestLayout()
+    
+            integer i = 0
+            number current = height
+            repeat while i < visualBlocks:GetSize()
+                Block child = visualBlocks:Get(i)
+                child:Resize()
+                current = current - child:GetHeight()
+                child:SetPosition(0, current)
+                i = i + 1
+            end
+        end
+    end
+    
+    action SetInterfaceScale(number scale)
+        parent:Control:SetInterfaceScale(scale)
+        
+        // If we're using pixel height to match block contents, update that info.
+        if root not= undefined and GetPixelHeight() > 0
+number height = 0        
+            Block block = root
+            repeat until block = undefined
+                block:SetFontSize(GetFontSize())
+                if block is SingleLineBlock
+                    height = height + GetLineHeight(0)
+                end
+    
+                block = block:GetNextBlock()
+            end
+        
+SetPixelHeight(height)
+            SetHeight(height)
+            RequestLayout()
+    
+            integer i = 0
+            number current = height
+            repeat while i < visualBlocks:GetSize()
+                Block child = visualBlocks:Get(i)
+                current = current - GetLineHeight(i)
+                child:RequestLayout()
+                child:SetPosition(0, current)
+                i = i + 1
+            end
+            
+        end
+    end
+    
+action GetBlockAtLine(integer line) returns Block
+        if root = undefined
+            return undefined
+        end
+
+        return GetBlockAtLine(root, line)
+    end
+    
+private action GetBlockAtLine(Block block, integer line) returns Block
+        /*
+        TO-DO: Improve this. We have a tree structure, so we should use it to binary search.
+        */
+
+        // Ensure that the starting candidate is navigable.
+        Block candidate = block
+        if candidate not= undefined and candidate:IsNavigable() = false
+            candidate = candidate:GetNextNavigableBlock()
+        end
+        
+        repeat until candidate = undefined or candidate:GetNavigationIndex() = line
+            Block nextCandidate = candidate:GetNextNavigableBlock()
+
+            /*
+            If we ever find a block with a navigation index that's too large, go back one step.
+            Most likely the previous block was our best choice, but had a size greater than 1,
+            meaning we found a "gap" in the mostly linear sequence of navigation indices.
+            */
+            if nextCandidate not= undefined and nextCandidate:GetNavigationIndex() > line
+                return candidate
+            end
+
+            candidate = nextCandidate
+        end
+
+        return candidate
+    end
+    
+    action GetLineY(integer index) returns number
+        return index * (GetFont():GetLineHeight() * (1 + GetPercentageLineHeightPadding()))
+    end
+    
+    action GetLineHeight(integer index) returns number
+        Block block = GetBlockAtLine(index)
+        number labelHeight = 0
+        if block is SingleLineBlock
+            SingleLineBlock singleBlock = cast(SingleLineBlock, block)
+            labelHeight = singleBlock:GetVisibleDetailLabelsHeight()
+        end
+        return GetFont():GetLineHeight() * (1 + GetPercentageLineHeightPadding()) + labelHeight
+    end
+    
+    action GetStaticLineHeight(integer index) returns number
+        return GetLineHeight(index)
+    end
+    
+    action GetCode returns text
+        return code
+    end
+
+    action SetCode(text value)
+        code = value
+    end
+    
+    action GetCodeBetween(integer startIndex, integer endIndex) returns text
+        return code:GetSubtext(startIndex, endIndex)
+    end
+
+    action SetPalette(BlockPalette palette)
+        me:palette = palette
+    end
+
+    action GetPalette returns BlockPalette
+        return palette
+    end
+
+    action GetEditor returns CodeEditor
+        if palette not= undefined
+            return palette:GetEditor()
+        end
+        return undefined
+    end
+
+
+    action SetBlocks(Array<Block> blocks)
+        blocksToDrag = blocks
+    end
+    
+    action GetBlocks returns Array<Block>
+        if blocksToDrag not= undefined
+            return blocksToDrag
+        end
+        Array<Block> blocks
+        
+        ActionCallBlock placeholder
+        EditBox box
+        box:SetText(GetName())
+        Array<Item2D> children
+        children:Add(box)
+        placeholder:SetBlockEnvironment(GetEditor())
+        placeholder:SetScopeDepth(1)
+        placeholder:SetAsPlaceholder(GetName(), children)
+        placeholder:Setup()
+
+        blocks:Add(placeholder)
+        return blocks
+    end
+    
+    action ParseToBlocks(text code) returns Array<Block>
+        SetCode(code)
+        
+        BlockPaletteItemParserToBlockListener listener
+
+        if GetEditor() = undefined
+            return undefined
+        end
+        Array<Block> blocks
+        CompilerErrorManager manager
+        QuorumLexer lexer
+        lexer:SetCompilerErrorManager(manager)
+        lexer:Read(code)
+        
+        if not manager:IsCompilationErrorFree()
+            return undefined
+        end
+        QuorumParser parser
+        parser:SetCompilerErrorManager(manager)
+        parser:SetLexer(lexer)
+        StartContext start = parser:Start()
+        if not manager:IsCompilationErrorFree()
+            return undefined
+        end
+        BlockPaletteItemParserToBlockListener blockListener
+        blockListener:SetQuorumLexer(lexer)
+        blockListener:SetStartContext(start)
+        blockListener:SetBlockEnvironment(me)
+        RootBlock root = blockListener:Update(0,100)
+        Block block = root:GetNextNavigableBlock()
+        repeat while block not= undefined
+            blocks:Add(block)
+            block = block:GetNextNavigableBlock()
+        end
+        return blocks
+    end
+    
+    action GainedFocus(FocusEvent event)
+        // Any child blocks we have need their vertices updated, in order to correctly show focus colors.
+        Array<Item2D> children = GetChildren()
+        integer counter = 0
+        repeat while counter < children:GetSize()
+            Item2D child = children:Get(counter)
+            if child is Block
+                child:RequestVerticesUpdate()
+            end
+            counter = counter + 1
+        end
+        
+        parent:Control:GainedFocus(event)
+    end
+    
+action LostFocus(FocusEvent event)
+        // Any child blocks we have need their vertices updated, in order to correctly show focus colors.
+        Array<Item2D> children = GetChildren()
+        integer counter = 0
+        repeat while counter < children:GetSize()
+            Item2D child = children:Get(counter)
+            if child is Block
+                child:RequestVerticesUpdate()
+            end
+            counter = counter + 1
+        end
+        
+        parent:Control:LostFocus(event)
+    end
+    
+    action GetTemplateAction returns Action
+        return templateAction
+    end
+
+    action SetTemplateAction(Action templateAction)
+        me:templateAction = templateAction
+    end
+
+end

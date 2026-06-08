@@ -1,0 +1,638 @@
+package Libraries.Interface.Controls.Charts.Graphics
+
+use Libraries.Game.Graphics.Drawable
+use Libraries.Game.Graphics.Color
+use Libraries.Interface.Controls.Charts.ChartAreaPanel
+use Libraries.Interface.Controls.Charts.Series
+use Libraries.Interface.Controls.Charts.GroupPanel
+use Libraries.Interface.Controls.Charts.ChartLabel
+use Libraries.Interface.Controls.Charts.Chart
+use Libraries.Interface.Controls.Icon
+use Libraries.Interface.Controls.Charts.ChartItem
+use Libraries.Containers.Array
+use Libraries.Interface.Controls.Charts.ChartOptions
+use Libraries.Interface.Controls.Charts.TwoVariableChart
+use Libraries.Interface.Controls.Charts.ChartLine
+use Libraries.Game.Graphics.Label
+
+
+/*
+The ChartDrawable class is a parent data structure that stores information for each 
+indiviual shape drawn on the chart. 
+ChartDrawable holds a reference to a Series and Group to track which Series and Group it belongs to.
+ChartDrawable holds the manual color of the drawable to avoid automatic re-coloring by the series.
+ChartDrawable holds the annotation for the drawable.
+
+Attribute: Author Hannah Williams
+*/
+
+class ChartDrawable is ChartItem, Drawable
+    ChartAreaPanel chartArea = undefined // If separated, this will correspond to the correct sub chart area
+    Series series = undefined
+    GroupPanel group = undefined
+    Color customColor = undefined
+    integer pattern = 0
+
+    //annotation handling for drawables display default is top
+    ChartLabel annotation = undefined
+    boolean showAnnotation = false
+    boolean displayOnLeft = false
+    boolean displayOnRight = false
+    boolean displayOnTop = true
+    boolean displayOnBottom = false
+
+    integer arrowSize = 0
+    boolean sideArrow = false
+    boolean selectionArrow = false
+    boolean selectionBracket = false
+
+    on create
+        // Color the item as gray in case it never gets added to a series.
+        Color color //LightGray
+        color:SetRed(0.75)
+        color:SetGreen(0.75)
+        color:SetBlue(0.75)
+        color:SetAlpha(1)
+        SetColor(color)
+    end
+    
+    action HasPattern returns boolean
+        if pattern not= 0
+            return true
+        end
+        return false
+    end
+
+    action SetPattern(integer pattern)
+        me:pattern = pattern
+    end
+
+    action GetPattern returns integer
+        return pattern
+    end
+
+    action GetPatternName returns text
+        ChartOptions options
+        if pattern = options:VERTICAL_LINES
+            return "vertical lines"
+        elseif pattern = options:HORIZONTAL_LINES
+            return "horizontal lines"
+        elseif pattern = options:DIAGONAL_DOWN_LINES
+            return "diagonal down lines"
+        elseif pattern = options:DIAGONAL_UP_LINES
+            return "diagonal up lines"
+        elseif pattern = options:PLAIN_CROSSHATCH      
+            return "plain crosshatch"
+        elseif pattern = options:DIAGONAL_CROSSHATCH
+            return "diagonal crosshatch"
+        elseif pattern = options:SOLID_CIRCLES
+            return "solid circles"
+        elseif pattern = options:HOLLOW_CIRCLES 
+            return "hollow circles"
+        elseif pattern = options:PINPOINT_DASHES  
+            return "pinpoint dashes"
+        elseif pattern = options:SOLID_TRIANGLES
+            return "solid triangles"
+        elseif pattern = options:HOLLOW_TRIANGLES    
+            return "hollow triangles"
+        elseif pattern = options:SOLID_BOXES
+            return "solid boxes"
+        elseif pattern = options:HOLLOW_BOXES   
+            return "hollow boxes"
+        else
+            return ""
+        end
+    end
+
+    action SetPatternToVerticalLines()
+        ChartOptions options
+        me:pattern = options:VERTICAL_LINES
+    end
+
+    action SetPatternToHorizontalLines()
+        ChartOptions options
+        me:pattern = options:HORIZONTAL_LINES
+    end
+
+    action SetPatternToDiagonalUpLines()
+        ChartOptions options
+        me:pattern = options:DIAGONAL_UP_LINES
+    end
+
+    action SetPatternToDiagonalDownLines()
+        ChartOptions options
+        me:pattern = options:DIAGONAL_DOWN_LINES
+    end
+
+    action SetPatternToDiagonalCrosshatch()
+        ChartOptions options
+        me:pattern = options:DIAGONAL_CROSSHATCH
+    end
+
+    action SetPatternToPlainCrosshatch()
+        ChartOptions options
+        me:pattern = options:PLAIN_CROSSHATCH
+    end
+
+    action SetPatternToSolidCircles()
+        ChartOptions options
+        me:pattern = options:SOLID_CIRCLES
+    end
+
+    action SetPatternToHollowCircles()
+        ChartOptions options
+        me:pattern = options:HOLLOW_CIRCLES
+    end
+
+    action SetPatternToSolidBoxes()
+        ChartOptions options
+        me:pattern = options:SOLID_BOXES
+    end
+
+    action SetPatternToHollowBoxes()
+        ChartOptions options
+        me:pattern = options:HOLLOW_BOXES
+    end
+
+    action SetPatternToSolidTriangles()
+        ChartOptions options
+        me:pattern = options:SOLID_TRIANGLES
+    end
+
+    action SetPatternToHollowTriangles()
+        ChartOptions options
+        me:pattern = options:HOLLOW_TRIANGLES
+    end
+
+    action SetPatternToPinpointDashes()
+        ChartOptions options
+        me:pattern = options:PINPOINT_DASHES
+    end
+
+    /*
+        Manual Color is used to override the series coloring if the user wants
+        to display a different color for only this item of the series/group.
+    */
+    action SetCustomColor(Color color)
+        me:customColor = color
+    end
+
+    action SetColor(Color color)
+        if customColor not= undefined
+            parent:Drawable:SetColor(customColor)
+        else
+            parent:Drawable:SetColor(color)
+        end
+    end
+
+    /*
+        Annotation is a control label that can be shown appended to this drawable
+        It can show things like a name, value, equation or custom text. 
+    */
+    action SetAnnotation(ChartLabel annotation)
+        me:annotation = annotation
+    end
+    /*
+        This action gets the chart drawables annotation (ChartLabel). Annotation is a control 
+        label that can be shown appended to this drawable. It can show things like a name, 
+        value, equation or custom text.
+
+        Attribute: Returns the ChartLabel of ChartDrawable object.
+    */
+    action GetAnnotation returns ChartLabel
+        return annotation
+    end
+    /*
+        This action sets the chart drawables annotation (ChartLabel) to visable (true) or hidden (false). 
+        Annotation is a control label that can be shown appended to this drawable. It can show things like a name, 
+        value, equation or custom text.
+
+        Attribute: Parameter show if true ChartLabel of ChartDrawable object is displayed.
+    */
+    action ShowAnnotation(boolean show)
+        showAnnotation = show
+    end
+    /*
+        This action gets the chart drawables annotation (ChartLabel) visibility setting. 
+        Annotation is a control label that can be shown appended to this drawable. It can show things like a name, 
+        value, equation or custom text.
+
+        Attribute: Returns true if the ChartLabel of ChartDrawable object is displayed.
+    */
+    action ShowAnnotation returns boolean
+        return showAnnotation
+    end
+
+    /*
+        The series is the entry in the legend associated with this drawable.
+        Series is used to locate, name, and color the drawable unless manually colored.
+    */
+    action SetSeries(Series series)
+        me:series = series
+    end
+    /*
+        This action gets the chart drawables series. The series is the entry in the legend associated with this drawable.
+        Series is used to locate, name, and color the drawable unless manually colored.
+
+        Attribute: Returns Series from the ChartDrawable.
+    */
+    action GetSeries returns Series
+        return series
+    end
+
+    /*
+        The group is the label on the chart associated with this drawable.
+        In most cases the groups are created by unique factors.
+        GroupPanel is used to position, locate, and name the drawable on the chart.
+    */
+    action SetGroup(GroupPanel group)
+        me:group = group
+    end
+    /*
+        Gets the group. The group is the label on the chart associated with this drawable.
+        In most cases the groups are created by unique factors. GroupPanel is used to position, 
+        locate, and name the drawable on the chart.
+    
+        Attribute: Returns the GroupPanel .
+    */
+    action GetGroup returns GroupPanel
+        return group
+    end
+
+    /*
+        A link to the parent chart area of this drawable.
+    */
+    action GetChartArea returns ChartAreaPanel
+        return chartArea
+    end
+
+    action SetChartArea(ChartAreaPanel chartArea)
+        me:chartArea = chartArea
+    end
+
+    // Try to get the chart this is attached to via the parent hierarchy.
+    action GetParentChart returns Chart
+        Item2D parentItem = me
+        repeat until parentItem is Chart or parentItem = undefined
+            parentItem = parentItem:GetParent()
+        end
+
+        return cast(Chart, parentItem)
+    end
+
+    /*
+        This action is used when a Chart Drawable gains the selection. Selection
+        elements are then shown.
+    */
+    action GainedSelection()
+        if HasSelectionBracket() and GetParentChart():GetSelectionBracket():GetSize() = 3 and HasSelectionArrow()
+            AdjustSelectionBracketAndArrow()          
+            GetParentChart():GetSelectionBracket():Get(0):Show()
+            GetParentChart():GetSelectionBracket():Get(1):Show()
+            GetParentChart():GetSelectionBracket():Get(2):Show()
+            GetParentChart():GetSelectionArrow():Show()
+        elseif HasSelectionArrow()
+            AdjustSelectionArrow()          
+            GetParentChart():GetSelectionArrow():Show()
+        end
+        parent:ChartItem:GainedSelection()
+    end
+    /*
+        This action is used when a Chart Drawable loses the selection. Selection
+        elements are then hidden.
+    */
+    action LostSelection()
+        if HasSelectionArrow()         
+            GetParentChart():GetSelectionArrow():Hide()
+        end
+        if HasSelectionBracket() and GetParentChart():GetSelectionBracket():GetSize() = 3          
+            GetParentChart():GetSelectionBracket():Get(0):Hide()
+            GetParentChart():GetSelectionBracket():Get(1):Hide()
+            GetParentChart():GetSelectionBracket():Get(2):Hide()
+        end
+        parent:ChartItem:LostSelection()
+    end
+
+    /*
+        Set the location of the annotation to the top of the chart drawable.
+    */
+    action SetAnnotationLocationToTop()
+        displayOnLeft = false
+        displayOnRight = false
+        displayOnTop = true
+        displayOnBottom = false
+    end
+    /*
+        Gets the location of the annotation. If the annotation is located on the top 
+        true is returned. If it is located somewhere else this action returns false.
+    
+        Attribute: Returns true when the annotation is located at the top.
+    */
+    action IsAnnotationLocationTop() returns boolean
+        return displayOnTop
+    end
+
+    /*
+        Set the location of the annotation to the bottom of the chart drawable.
+    */
+    action SetAnnotationLocationToBottom()
+        displayOnLeft = false
+        displayOnRight = false
+        displayOnTop = false
+        displayOnBottom = true
+    end
+    /*
+        Gets the location of the annotation. If the annotation is located on the bottom 
+        true is returned. If it is located somewhere else this action returns false.
+    
+        Attribute: Returns true when the annotation is located at the bottom.
+    */
+    action IsAnnotationLocationBottom() returns boolean
+        return displayOnBottom
+    end
+
+    /*
+        Set the location of the annotation to the left of the chart drawable.
+    */
+    action SetAnnotationLocationToLeft()
+        displayOnLeft = true
+        displayOnRight = false
+        displayOnTop = false
+        displayOnBottom = false
+    end
+    /*
+        Gets the location of the annotation. If the annotation is located on the left 
+        true is returned. If it is located somewhere else this action returns false.
+    
+        Attribute: Returns true when the annotation is located at the left.
+    */
+    action IsAnnotationLocationLeft() returns boolean
+        return displayOnLeft
+    end
+
+    /*
+        Set the location of the annotation to the right of the chart drawable.
+    */
+    action SetAnnotationLocationToRight()
+        displayOnLeft = false
+        displayOnRight = true
+        displayOnTop = false
+        displayOnBottom = false
+    end
+     /*
+        Gets the location of the annotation. If the annotation is located on the right 
+        true is returned. If it is located somewhere else this action returns false.
+    
+        Attribute: Returns true when the annotation is located at the right.
+    */   
+    action IsAnnotationLocationRight() returns boolean
+        return displayOnRight
+    end
+
+    /*
+        This action is used to load and place an arrow for selection for a single chart drawable item.
+    */
+    action AdjustSelectionArrow()
+        //initialize position and size
+        integer x = cast(integer, GetGlobalX())
+        integer y = cast(integer, GetGlobalY())
+        integer width = cast(integer, GetWidth())
+        integer height = cast(integer, GetHeight())
+        Label annotation = GetAnnotation()
+
+        //some chart elements make use of child elements for their selection position and size
+        ChartDrawable item = me
+        if item is ChartLine
+            ChartLine temp = cast(ChartLine, item)
+            x = cast(integer, temp:GetLineStart():GetGlobalX())
+            y = cast(integer, temp:GetLineStart():GetGlobalY())
+            width = cast(integer, temp:GetLineStart():GetWidth())
+            height = cast(integer, temp:GetLineStart():GetHeight())
+            annotation = temp:GetLineStart():GetAnnotation()
+        elseif item is Plot
+            Plot temp = cast(Plot, item)
+            
+            x = cast(integer, temp:GetPlotItems():Get(10):GetGlobalX())
+            y = cast(integer, temp:GetPlotItems():Get(10):GetGlobalY())
+            width = cast(integer, temp:GetPlotItems():Get(10):GetWidth())
+            height = cast(integer, temp:GetPlotItems():Get(10):GetHeight())
+            annotation = undefined
+        end
+
+        //if the arrow size doesn't match this element, update the size of the arrow
+        if GetParentChart():GetCurrentArrowSize() not= arrowSize or GetParentChart():GetCurrentSideArrow() not= sideArrow
+            Array<number> vertices
+            if (GetParentChart():GetHorizontalFlag() and sideArrow = false) or (GetParentChart():GetHorizontalFlag() = false and sideArrow)
+                vertices:Add(0)
+                vertices:Add(arrowSize)
+                vertices:Add(arrowSize)
+                vertices:Add(arrowSize*2)
+                vertices:Add(arrowSize)
+                vertices:Add(0)
+            else
+                vertices:Add(arrowSize)
+                vertices:Add(0)
+                vertices:Add(arrowSize*2)
+                vertices:Add(arrowSize)
+                vertices:Add(0)
+                vertices:Add(arrowSize)
+            end
+            
+            GetParentChart():GetSelectionArrow():LoadShape(vertices, GetParentChart():GetSelectionColor())
+            GetParentChart():GetSelectionArrow():SetZ(-1)
+            GetParentChart():SetCurrentArrowSize(arrowSize)
+            GetParentChart():SetCurrentSideArrow(sideArrow)
+        end
+
+        //reposition the arrow
+        if GetParentChart():GetHorizontalFlag()
+            if sideArrow
+                integer tickHeight = GetParentChart():GetVerticalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetVerticalPanel():GetTickWidth()
+                GetParentChart():GetSelectionArrow():SetPosition(x + width/2 - arrowSize, y + height + tickHeight/2)
+                if GetParentChart() is TwoVariableChart and GetParentChart():ShowAnnotations() and annotation not= undefined
+                    GetParentChart():GetSelectionArrow():SetY(GetParentChart():GetSelectionArrow():GetY() + cast(integer, annotation:GetHeight()))
+                end
+            else
+                integer tickHeight = GetParentChart():GetHorizontalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetHorizontalPanel():GetTickWidth()
+                GetParentChart():GetSelectionArrow():SetPosition(x + width + tickHeight/2, y + height/2 - arrowSize)
+                if GetParentChart():ShowAnnotations() and annotation not= undefined
+                    GetParentChart():GetSelectionArrow():SetX(GetParentChart():GetSelectionArrow():GetX() + cast(integer, annotation:GetWidth()))
+                end
+            end
+        else
+            if sideArrow
+                integer tickHeight = GetParentChart():GetVerticalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetVerticalPanel():GetTickWidth()
+                GetParentChart():GetSelectionArrow():SetPosition(x + width + tickWidth/2,y + height/2 - arrowSize)
+                if GetParentChart():ShowAnnotations() and annotation not= undefined
+                    GetParentChart():GetSelectionArrow():SetX(GetParentChart():GetSelectionArrow():GetX() + cast(integer, annotation:GetWidth()))
+                end
+            else
+                integer tickHeight = GetParentChart():GetHorizontalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetHorizontalPanel():GetTickWidth()
+                GetParentChart():GetSelectionArrow():SetPosition(x + width/2 - arrowSize, y + height + tickWidth/2)
+                if GetParentChart():ShowAnnotations() and annotation not= undefined
+                    GetParentChart():GetSelectionArrow():SetX(GetParentChart():GetSelectionArrow():GetX() + cast(integer, annotation:GetHeight()))
+                end
+            end
+        end
+    end
+
+    /*
+        This action is used to load and place a bracket and arrow for selection for a single chart drawable item.
+    */
+    action AdjustSelectionBracketAndArrow()
+        integer x = cast(integer, GetGlobalX())
+        integer y = cast(integer, GetGlobalY())
+        integer width = cast(integer, GetWidth())
+        integer height = cast(integer, GetHeight())
+
+        //if the arrow size doesn't match this element, update the size of the arrow
+        if GetParentChart():GetCurrentArrowSize() not= arrowSize or GetParentChart():GetCurrentSideArrow() not= sideArrow
+            Array<number> vertices
+            if (GetParentChart():GetHorizontalFlag() and sideArrow = false) or (GetParentChart():GetHorizontalFlag() = false and sideArrow)
+                vertices:Add(0)
+                vertices:Add(arrowSize)
+                vertices:Add(arrowSize)
+                vertices:Add(arrowSize*2)
+                vertices:Add(arrowSize)
+                vertices:Add(0)
+            else
+                vertices:Add(arrowSize)
+                vertices:Add(0)
+                vertices:Add(arrowSize*2)
+                vertices:Add(arrowSize)
+                vertices:Add(0)
+                vertices:Add(arrowSize)
+            end
+            
+            GetParentChart():GetSelectionArrow():LoadShape(vertices, GetParentChart():GetSelectionColor())
+            GetParentChart():GetSelectionArrow():SetZ(-1)
+            GetParentChart():SetCurrentArrowSize(arrowSize)
+            GetParentChart():SetCurrentSideArrow(sideArrow)
+        end
+
+        //reposition the arrow and resize/position the brackets
+        if GetParentChart():GetHorizontalFlag()
+            if sideArrow
+                integer tickHeight = GetParentChart():GetHorizontalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetHorizontalPanel():GetTickWidth()
+                if GetParentChart():GetSelectionBracket():GetSize() = 3
+                    Drawable top = GetParentChart():GetSelectionBracket():Get(0)
+                    top:SetSize(tickWidth, tickHeight)
+                    top:SetPosition(x, y + height - tickHeight + tickWidth)
+
+                    Drawable side = GetParentChart():GetSelectionBracket():Get(1)
+                    side:SetSize(width, tickWidth)
+                    side:SetPosition(x, y + height + tickWidth)
+
+                    Drawable bottom = GetParentChart():GetSelectionBracket():Get(2)
+                    bottom:SetSize(tickWidth, tickHeight)
+                    bottom:SetPosition(x + width - tickWidth, y + height - tickHeight + tickWidth)
+
+                    GetParentChart():GetSelectionArrow():SetPosition(side:GetX() + side:GetWidth()/2 - arrowSize, side:GetY() + tickWidth*2)
+                else
+                    GetParentChart():GetSelectionArrow():SetPosition(x + width/2 - arrowSize, y + height + tickHeight)
+                end
+            else
+                integer tickHeight = GetParentChart():GetVerticalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetVerticalPanel():GetTickWidth()
+                if GetParentChart():GetSelectionBracket():GetSize() = 3
+                    Drawable top = GetParentChart():GetSelectionBracket():Get(0)
+                    top:SetSize(tickWidth, tickHeight)
+                    top:SetPosition(x + width - tickWidth + tickHeight, y + height - tickHeight)
+    
+                    Drawable side = GetParentChart():GetSelectionBracket():Get(1)
+                    side:SetSize(tickHeight, height)
+                    side:SetPosition(x + width + tickHeight, y)
+    
+                    Drawable bottom = GetParentChart():GetSelectionBracket():Get(2)
+                    bottom:SetSize(tickWidth, tickHeight)
+                    bottom:SetPosition(x + width - tickWidth + tickHeight, y)
+    
+                    GetParentChart():GetSelectionArrow():SetPosition(side:GetX() + tickHeight*2, side:GetY() + side:GetHeight()/2 - arrowSize)
+                else
+                    GetParentChart():GetSelectionArrow():SetPosition(x + width + tickHeight, y + height/2 - arrowSize)
+                end
+            end
+        else
+            if sideArrow
+                integer tickHeight = GetParentChart():GetVerticalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetVerticalPanel():GetTickWidth()
+                if GetParentChart():GetSelectionBracket():GetSize() = 3
+                    Drawable top = GetParentChart():GetSelectionBracket():Get(0)
+                    top:SetSize(tickWidth, tickHeight)
+                    top:SetPosition(x + width - tickWidth + tickHeight, y + height - tickHeight)
+        
+                    Drawable side = GetParentChart():GetSelectionBracket():Get(1)
+                    side:SetSize(tickHeight, height)
+                    side:SetPosition(x + width + tickHeight, y)
+        
+                    Drawable bottom = GetParentChart():GetSelectionBracket():Get(2)
+                    bottom:SetSize(tickWidth, tickHeight)
+                    bottom:SetPosition(x + width - tickWidth + tickHeight, y)
+    
+                    
+                    GetParentChart():GetSelectionArrow():SetPosition(side:GetX() + tickHeight*2, side:GetY() + side:GetHeight()/2 - arrowSize)
+                else
+                    GetParentChart():GetSelectionArrow():SetPosition(x + width + tickWidth, y + height/2 - arrowSize)
+                end
+            else
+                integer tickHeight = GetParentChart():GetHorizontalPanel():GetTickHeight()
+                integer tickWidth = GetParentChart():GetHorizontalPanel():GetTickWidth()
+                if GetParentChart():GetSelectionBracket():GetSize() = 3
+                    Drawable top = GetParentChart():GetSelectionBracket():Get(0)
+                    top:SetSize(tickWidth, tickHeight)
+                    top:SetPosition(x + tickWidth, y + height - tickHeight + tickWidth)
+    
+                    Drawable side = GetParentChart():GetSelectionBracket():Get(1)
+                    side:SetSize(width - tickWidth*2, tickWidth)
+                    side:SetPosition(x + tickWidth, y + height + tickWidth)
+    
+                    Drawable bottom = GetParentChart():GetSelectionBracket():Get(2)
+                    bottom:SetSize(tickWidth, tickHeight)
+                    bottom:SetPosition(x + width - tickWidth*2, y + height - tickHeight + tickWidth)
+    
+                    GetParentChart():GetSelectionArrow():SetPosition(side:GetX() + side:GetWidth()/2 - arrowSize, side:GetY() + tickWidth*2)
+                else
+                    GetParentChart():GetSelectionArrow():SetPosition(x + width/2 - arrowSize, y + height + tickWidth)
+                end
+            end
+        end
+    end
+
+    action GetArrowSize() returns integer
+        return arrowSize
+    end
+
+    action SetArrowSize(integer arrowSize)
+        me:arrowSize = arrowSize
+    end
+
+    action HasSideArrow() returns boolean
+        return sideArrow
+    end
+
+    action SetSideArrow(boolean sideArrow)
+        me:sideArrow = sideArrow
+    end
+
+    action HasSelectionArrow() returns boolean
+        return selectionArrow
+    end
+
+    action SetSelectionArrow(boolean selectionArrow)
+        me:selectionArrow = selectionArrow
+    end
+
+    action HasSelectionBracket() returns boolean
+        return selectionBracket
+    end
+
+    action SetSelectionBracket(boolean selectionBracket)
+        me:selectionBracket = selectionBracket
+    end
+
+end

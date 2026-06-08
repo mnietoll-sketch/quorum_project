@@ -1,0 +1,284 @@
+package Libraries.Language.Compile.Symbol
+
+use Libraries.Containers.Array
+use Libraries.Containers.Iterator
+use Libraries.Containers.HashTable
+use Libraries.Language.Compile.Location
+use Libraries.Web.Page.Paragraph
+use Libraries.Web.Page.PreformattedText
+use Libraries.Web.Page.CodeBlock
+use Libraries.Web.Page.Division
+use Libraries.Web.Page.StrongText
+use Libraries.Language.Support.TextBuilder
+
+class Documentation is Location
+    public constant text AUTHOR = "Author"
+    public constant text PARAMETER = "Parameter"
+    public constant text RETURNS = "Returns"
+    public constant text EXAMPLE = "Example"
+
+    text description = ""
+    text author = ""
+    text theReturn = ""
+    text example = ""
+    HashTable<text, text> parameters
+
+    action GetDescription returns text
+        return description
+    end
+
+    action RemoveInternalWhitespace(text value) returns text
+        if value = undefined
+            return undefined
+        end
+        value = value:Trim()
+        text LF = ""
+        LF = LF:GetLineFeed()
+        text CR = LF:GetCarriageReturn()
+        text SPACE = " "
+        text TAB = LF:GetTab()
+        TextBuilder builder
+        builder:SetMaxSize(value:GetSize())
+        i = 0
+        repeat while i < value:GetSize()
+            text ch = value:GetCharacter(i)
+            if ch not= LF and ch not= CR and ch not= SPACE and ch not= TAB
+                builder:Append(ch)
+            elseif ch = SPACE
+                j = i + 1
+                repeat while j < value:GetSize()
+                    text ch2 = value:GetCharacter(j)
+                    if ch2 = SPACE
+                        i = i + 1
+                    else
+                        j = value:GetSize()
+                    end
+                    j = j + 1
+                end
+                builder:Append(SPACE)
+            end
+            i = i + 1
+        end
+        return builder:ToText()
+    end
+
+    /*
+        This action returns the first sentence from the description.
+    */
+    action GetShortDescription returns text
+        short = ""
+        i = 0
+        repeat while i < description:GetSize()
+            if description:GetCharacter(i) = "."
+                short = description:GetSubtext(0, i) + "."
+                return short
+            end
+            i = i + 1
+        end
+        if short:IsEmpty()
+            short = description
+        end
+        return short
+    end
+
+    action GetHeaderDivision returns Division
+        Division division
+        Paragraph paragraph
+        text dq = ""
+        dq = dq:GetDoubleQuote()
+        paragraph:AddText(GetDescription())
+
+        division:Add(paragraph)
+        text example = GetExample()
+        
+        if example not= undefined and not example:IsEmpty()
+            example = example:Replace("<", "&lt;")
+            example:Replace(">", "&gt;")
+            Paragraph exampleParagraph
+            StrongText strong
+            strong:AddText("Example Code")
+            exampleParagraph:Add(strong)
+            division:Add(exampleParagraph)
+
+            PreformattedText t
+            t:SetClassAttribute("line-numbers rounded-md bg-neutral-grey-10 py-4")
+            CodeBlock block
+            block:SetClassAttribute("language-quorum")
+            block:AddText(example)
+            t:Add(block)
+
+            division:Add(t)
+        end
+
+        return division
+    end
+
+    action GetHeaderAsWeb returns text
+        text result = ""
+        text dq = result:GetDoubleQuote()
+        result = result + "<p align=" + dq + "justify" + dq + ">" + GetDescription() + "</p>" 
+        text example = GetExample()
+        example = example:Replace("<", "&lt;")
+        example:Replace(">", "&gt;")
+        if example not= undefined
+            result = result + "<strong><em>Example Code</em></strong>"
+            result = result + "<pre class=" + dq + "code" + dq + ">"
+            result = result + example
+            result = result + "</pre>"
+        end
+        return result
+    end
+
+    action GetAuthor returns text
+        return author
+    end
+
+    action GetReturns returns text
+        return theReturn
+    end
+
+    action HasParameter(text name) returns boolean
+        if parameters:HasKey(name)
+            return true
+        end
+        return false
+    end
+
+    action GetParameterDescription(text name) returns text
+        if parameters:HasKey(name)
+            return parameters:GetValue(name)
+        end
+        return undefined
+    end
+
+    action GetExample returns text
+        return example
+    end
+
+    action ParseDocumentation(text docs)
+if docs = undefined
+            return now
+        end
+        text value = docs:Trim()
+        
+        if value:StartsWith("//") and value:GetSize() >= 2
+value = value:GetSubtext(2, value:GetSize())
+            value = value:Trim()
+        elseif value:StartsWith("/*") and value:GetSize() >= 4 //make sure there is enough space in the text, otherwise it's in the wrong format
+            value = value:GetSubtext(2, value:GetSize() - 2)
+            value = value:Trim()
+        else
+            return now
+        end
+
+        Array<text> values = value:Split("Attribute:")
+
+        if not values:IsEmpty()
+            description = values:Get(0)
+            description = description:Trim()
+        end
+
+        integer i = 1
+        repeat values:GetSize() - 1 times
+            text attribute = values:Get(i)
+            attribute = attribute:Trim()
+
+            if attribute:StartsWith(AUTHOR)
+                text val = attribute:GetSubtext(AUTHOR:GetSize(), attribute:GetSize())
+                author = val:Trim()
+            elseif attribute:StartsWith(PARAMETER)
+                text val = attribute:GetSubtext(PARAMETER:GetSize(), attribute:GetSize())
+                val = val:Trim()
+
+                integer j = 0
+                repeat while j < val:GetSize()
+                    if val:GetCharacter(j) = " "
+                        text name = val:GetSubtext(0, j)
+                        name = name:Trim()
+                        text descript = undefined
+                        if j + 1 < val:GetSize()
+                            descript = val:GetSubtext(j + 1, val:GetSize())
+                        end
+                        parameters:Add(name, descript)
+                        j = val:GetSize()
+                    end
+                    j = j + 1
+                end
+            elseif attribute:StartsWith(RETURNS)
+                text val = attribute:GetSubtext(RETURNS:GetSize(), attribute:GetSize())
+                theReturn = val:Trim()
+            elseif attribute:StartsWith(EXAMPLE)
+                text val = attribute:GetSubtext(EXAMPLE:GetSize(), attribute:GetSize())
+                example = FormatExample(val)
+            end
+            i = i + 1
+        end
+    end
+    
+private action FormatExample(text example) returns text
+        if example = undefined or example:IsEmpty()
+            return ""
+        end
+        Array<text> array = example:SplitIntoLines()
+        if array:IsEmpty()
+            return ""
+        end
+text funny = CalculateFirstWhitespace(array)
+        
+        TextBuilder builder
+        boolean topMost = true
+        i = 0
+        repeat while i < array:GetSize()
+            text value = array:Get(i)
+            if value not= undefined and not value:IsEmpty()
+                topMost = false
+            end
+            if value not= undefined and value:StartsWith(funny)
+                value = value:GetSubtext(funny:GetSize())
+builder:Append(value)
+            else
+                builder:Append(value)
+            end
+            if not topMost
+builder:Append("
+")
+            end
+            i = i + 1
+        end
+        return builder:ToText()
+    end
+    
+private action CalculateFirstWhitespace(Array<text> lines) returns text
+        text first = undefined
+        text funny = ""
+        //find first line with spaces
+        i = 0
+        repeat while i < lines:GetSize()
+            text line = lines:Get(i)
+            if line not= undefined and not line:IsEmpty() and line:GetCharacter(0) = " "
+                first = line
+                i = lines:GetSize()
+            end
+            i = i + 1
+        end
+        //there wasn't a line where this was relevant, so just return empty text
+        if first = undefined
+            return ""
+        end
+//calculate spaces
+        i = 0
+        repeat while first not= undefined and i < first:GetSize()
+            
+text char = first:GetCharacter(i)
+if char = " "
+                funny = funny + " "
+            elseif char = first:GetCarriageReturn() or char = first:GetLineFeed()
+                //ignore these
+            else
+                i = first:GetSize()
+            end
+            i = i + 1
+        end
+    return funny
+    end
+end

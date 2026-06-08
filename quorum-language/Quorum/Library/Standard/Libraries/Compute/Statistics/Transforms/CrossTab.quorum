@@ -1,0 +1,238 @@
+package Libraries.Compute.Statistics.Transforms
+
+use Libraries.Compute.Statistics.DataFrameTransform
+use Libraries.Compute.Statistics.DataFrame
+use Libraries.Containers.Array
+use Libraries.Compute.Statistics.DataFrameColumn
+use Libraries.Compute.Statistics.Inputs.ColumnInput
+use Libraries.Compute.Statistics.DataFrameSelection
+use Libraries.Containers.HashTable
+use Libraries.Containers.Iterator
+use Libraries.Compute.Statistics.Columns.IntegerColumn
+use Libraries.System.DateTime
+use Libraries.Compute.Statistics.Columns.TextColumn
+
+/*
+    The CrossTab class takes a DataFrame and its selection to decide how to transform it. Specifically, 
+    CrossTab takes the first column in the selection and places it on the left-most column of the 
+    new frame, then the second column and places it on top. In both cases, the columns are filtered 
+    for unique items and sorted.
+
+    Once these columns are placed, the CrossTab calculates how many of each unique item pair exist in 
+    the original DataFrame. For example, if the first row of the original DataFrame has the value 'test'
+    and the right-most value has '11.2,' then the position in the transformed CrossTab DataFrame will 
+    increment this value in the table. Thus, if there were no other test, 11.2 pairs, this value in the 
+    new DataFrame would be 1.
+
+    Attribute: Author Andreas Stefik
+
+    Attribute: Example
+
+    use Libraries.Compute.Statistics.DataFrame
+    use Libraries.Compute.Statistics.Transforms.CrossTab
+    
+    //Create a DataFrame, load it, and set which column to focus on
+    DataFrame frame
+    frame:Load("Words.csv")
+    frame:AddSelectedColumn(2)
+    frame:AddSelectedColumn(3)
+    
+    
+    CrossTab tab
+    DataFrame crossTab = frame:Transform(tab)
+    crossTab:Save("Cross.csv")
+    output "File Saved."
+*/
+class CrossTab is DataFrameTransform, ColumnInput
+    boolean fullRowsAndColumns = false    // Produce a cross tab with all categories listed on both the rows and the columns
+
+    action Transform(DataFrame frame) returns DataFrame 
+        integer i = 0
+        DataFrame newFrame
+
+        if GetColumnSize() not= 2
+            alert("Two columns must be selected to conduct a Cross Tab Transform.")
+        end
+
+        integer x = GetColumn(0)
+        integer y = GetColumn(1)
+        DataFrameColumn left = frame:GetColumn(x)
+        DataFrameColumn right = frame:GetColumn(y)
+        DataFrameColumn rightCopy = right:Copy(true,true)
+        DataFrameColumn newLeft = left:Copy(true, true)
+
+        Array<DataFrameColumn> columns
+        if fullRowsAndColumns
+            // Collect all possible header values
+            HashTable<text, integer> headers
+            i = 0
+            repeat while i < rightCopy:GetSize()
+                headers:Add(rightCopy:GetAsText(i),1)
+                i = i + 1
+            end
+            i = 0
+            repeat while i < newLeft:GetSize()
+                if not headers:HasKey(newLeft:GetAsText(i))
+                    headers:Add(newLeft:GetAsText(i),1)
+                end
+                i = i + 1
+            end
+            // Sort header values and make columns
+            Array<text> keys = headers:CopyToKeyArray()
+            keys:Sort()
+            TextColumn headersColumn
+            headersColumn:SetHeader(newLeft:GetHeader()+"\"+rightCopy:GetHeader())
+            columns:Add(headersColumn)
+            i = 0
+            repeat while i < keys:GetSize()
+                headersColumn:Add(keys:Get(i))
+
+                IntegerColumn column
+                column:SetHeader(keys:Get(i))
+                column:SetSize(keys:GetSize())
+                columns:Add(column)
+                i = i + 1
+            end
+            rightCopy = headersColumn
+            newLeft = headersColumn
+        else
+            newLeft:SetHeader(newLeft:GetHeader()+"\"+rightCopy:GetHeader())
+            columns:Add(newLeft)
+            i = 0
+            repeat while i < rightCopy:GetSize()
+                text header = rightCopy:GetAsText(i)
+                IntegerColumn column
+                column:SetHeader(header)
+                column:SetSize(newLeft:GetSize())
+                columns:Add(column)
+                i = i + 1
+            end
+        end
+       
+        newFrame:SetColumns(columns)
+
+        //now go down the rows in the old frame and start counting
+        i = 0
+        HashTable<text, HashTable<text, integer>> hash
+        repeat while i < left:GetSize()
+            if not left:IsUndefined(i)
+                text leftKey = left:GetAsText(i)
+                text rightKey = right:GetAsText(i)
+    
+                if not hash:HasKey(leftKey)
+                    HashTable<text, integer> newHash
+                    hash:Add(leftKey, newHash)
+                end
+
+                HashTable<text,integer> count = hash:GetValue(leftKey)
+                if not right:IsUndefined(i)
+                    if count:HasKey(rightKey)
+                        count:Add(rightKey, count:GetValue(rightKey) + 1)
+                    else
+                        count:Add(rightKey, 1)
+                    end
+                end
+            end
+            i = i + 1
+        end
+
+        if fullRowsAndColumns
+            // Fill in a zero counts for all missing cells in hash
+            i = 0
+            repeat while i < newLeft:GetSize()
+                text leftKey = newLeft:GetAsText(i)
+    
+                if not hash:HasKey(leftKey)
+                    HashTable<text, integer> newHash
+                    j = 0
+                    repeat while j < newLeft:GetSize()
+                        text rightKey = newLeft:GetAsText(j)
+                        if not newHash:HasKey(rightKey)
+                            newHash:Add(rightKey, 0)
+                        end
+                        j = j + 1
+                    end
+                    hash:Add(leftKey, newHash)
+                end
+                i = i + 1
+            end
+        end
+
+        /* 
+            Since newLeft contains the sorted items already let's use that
+            This is useful because numbers and dates are not sorted like text values.
+            Meaning the counts could be placed in the wrong spot, since each column 
+            has it's own type sorting this is the best way to account for all types.
+        */
+        Array<text> sortedKeys
+        i = 0 
+        repeat while i < newLeft:GetSize()
+            sortedKeys:Add(newLeft:GetAsText(i))
+            i = i + 1
+        end  
+
+        i = 0
+        repeat while i < sortedKeys:GetSize()
+            text key = sortedKeys:Get(i)
+            HashTable<text,integer> count = hash:GetValue(key)
+            if count not= undefined //doesn't have to be there
+                /* 
+                    Since rightCopy contains the sorted items already let's use that
+                    This is useful because numbers and dates are not sorted like text values.
+                    Meaning the counts could be placed in the wrong spot, since each column 
+                    has it's own type sorting this is the best way to account for all types.
+                */
+                Array<text> sortedCount
+                j = 0 
+                repeat while j < rightCopy:GetSize()
+                    sortedCount:Add(rightCopy:GetAsText(j))
+                    j = j + 1
+                end 
+
+                j = 0
+                repeat while j < sortedCount:GetSize()
+                    text countKey = sortedCount:Get(j)
+                    integer value = 0
+                    if count:HasKey(countKey)
+                        value = count:GetValue(countKey)
+                    end
+
+                    //now put it into the new data frame at the right position, i, j
+                    DataFrameColumn newLeftColumn = newFrame:GetColumn(j+1)
+                    newLeftColumn:SetAsInteger(i, value)
+                    j = j + 1
+                end
+            end
+            i = i + 1
+        end
+        return newFrame
+    end
+
+    /* 
+    A flag to produce a cross tab with all categories listed on both the rows and the columns
+    regardless of if they appear in both columns of data.
+    This method will fill in any missing values with 0 at the end to show that there 
+    were no shared count at those crossed elements. This is useful in collecting count 
+    information for paired data and is used in some statistical tests.
+
+    Attribute: Example
+
+    use Libraries.Compute.Statistics.DataFrame
+    use Libraries.Compute.Statistics.Transforms.CrossTab
+    
+    //Create a DataFrame, load it, and set which column to focus on
+    DataFrame frame
+    frame:Load("Words.csv")
+    frame:AddSelectedColumn(2)
+    frame:AddSelectedColumn(3)
+    
+    CrossTab tab
+    tab:FullRowsAndColumns(true)
+    DataFrame crossTab = frame:Transform(tab)
+    crossTab:Save("Cross.csv")
+    output "File Saved."
+    */
+    action FullRowsAndColumns(boolean fullCrossTab)
+        me:fullRowsAndColumns = fullCrossTab
+    end
+end

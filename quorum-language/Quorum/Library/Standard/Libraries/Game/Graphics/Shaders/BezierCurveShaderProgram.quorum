@@ -1,0 +1,28 @@
+package Libraries.Game.Graphics.Shaders
+use Libraries.Game.GameStateManager
+
+class BezierCurveShaderProgram is ShaderProgram
+
+    public constant text DEFAULT_NAME = "Bezier Curve Shader Program"
+    constant text FRAGMENT_NAME = "Bezier Curve Fragment Shader"
+
+    on create
+        SetName(DEFAULT_NAME)
+        GameStateManager manager
+        ShaderManager shaderManager = manager:GetShaderManager()
+        Shader vertex = shaderManager:GetDefaultVertexShader2D()
+        Add(vertex)
+
+        if shaderManager:HasShader(FRAGMENT_NAME)
+            Shader fragment = shaderManager:GetShader(FRAGMENT_NAME)
+            Add(fragment)
+        else
+            BezierCurveFragmentShader fragment
+            Add(fragment)
+        end
+
+        BezierCurveMapping mapping
+        SetShaderMapping(mapping)
+    end
+
+end

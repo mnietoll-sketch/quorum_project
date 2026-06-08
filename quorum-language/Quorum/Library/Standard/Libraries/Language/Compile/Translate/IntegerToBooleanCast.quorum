@@ -1,0 +1,43 @@
+package Libraries.Language.Compile.Translate
+
+use Libraries.Language.Compile.Symbol.Type
+
+class IntegerToBooleanCast is ExplicitCastOpcode
+    JavaBytecodeOpcodes opcodes
+
+    action Write
+        VisitLineNumber()
+        JavaBytecodeMethodWriter methodWriter = GetMethodWriter()
+
+        QuorumOpcode opcodeToCast = GetOpcodeToCast()
+        if opcodeToCast not= undefined
+            opcodeToCast:Write()
+        end
+        methodWriter:VisitMethodInvoke(opcodes:GetInvokeStatic(), "plugins/quorum/Libraries/Language/Types", "IntegerToBooleanCast",
+                "(I)Z", false)
+    end
+    
+    action WritePython returns text
+        text result = ""
+        QuorumOpcode opcodeToCast = GetOpcodeToCast()
+        if opcodeToCast not= undefined
+            result = result + "false if" + opcodeToCast:WritePython() + " == 0: else true"
+        end
+        return result
+    end
+
+    action WriteJavaScript returns text
+        text result = ""
+        QuorumOpcode opcodeToCast = GetOpcodeToCast()
+        if opcodeToCast not= undefined
+            result = result + opcodeToCast:WriteJavaScript() + " == 0? false : true"
+        end
+        return result
+    end
+
+    action GetTemplateCopy returns QuorumOpcode
+        IntegerToBooleanCast op
+        op:SetType(me:GetType())
+        return op
+    end
+end

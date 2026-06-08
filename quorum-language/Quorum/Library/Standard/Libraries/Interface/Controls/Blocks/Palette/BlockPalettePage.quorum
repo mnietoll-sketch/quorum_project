@@ -1,0 +1,293 @@
+package Libraries.Interface.Controls.Blocks.Palette
+
+use Libraries.Interface.Forms.Page
+use Libraries.Interface.Controls.Button
+use Libraries.Interface.Pages.StackedRowPage
+use Libraries.Game.Graphics.Painter2D
+use Libraries.Containers.Array
+use Libraries.Interface.Controls.ScrollPaneRenderer
+use Libraries.Interface.Controls.Blocks.Block
+use Libraries.Interface.Controls.Blocks.MultipleLineBlock
+use Libraries.Interface.Controls.Blocks.CodeEditor
+use Libraries.Interface.Behaviors.Blocks.BlockPaletteItemInsertBehavior
+use Libraries.Game.Graphics.Color
+use Libraries.Language.Compile.Symbol.Action
+use Libraries.Game.GameStateManager
+use Libraries.Game.FocusManager
+use Libraries.Interface.Controls.ScrollPaneRendererAnchor
+
+class BlockPalettePage is StackedRowPage
+
+    BlockPalette palette = undefined
+    
+    // Arrays used during the Draw action. Should not be used otherwise!
+    Array<Block> renderArray
+    Array<MultipleLineBlock> currentMultiBlocks
+    
+    
+    public constant integer HEADER_SIZE = 24
+    public constant integer HEADER2_SIZE = 18
+public constant integer LABEL_SIZE = 12
+    
+    // A behavior assigned to each BlockPalettetItem that is added to this page.
+BlockPaletteItemInsertBehavior itemInsertBehavior
+    
+    // Values containing details for the Icon that will be associated with this page once it's added to a BlockPalette.
+    integer iconUnicode = 0
+    text iconFilePath = ""
+    
+on create
+SetCustomDrawing(true)
+        SetChildrenProcessingMouseEvents(true)
+    end
+    
+action Draw(Painter2D painter)
+if GetView2D() not= undefined
+            GetView2D():Draw(painter)
+        end
+        
+        number topY = GetGlobalY() + GetHeight()
+        number bottomY = GetGlobalY()
+        
+        Array<Item2D> items = GetScrollRegionItems()
+        integer i = 0
+        repeat while i < items:GetSize()
+            Item2D item = items:Get(i)
+            number itemTop = item:GetGlobalY() + item:GetHeight()
+            number itemBottom = item:GetGlobalY()
+            if itemTop < bottomY
+                // This item is off the bottom of the scroll area, so don't bother looking through the rest.
+                i = items:GetSize()
+            elseif itemBottom > topY
+                // Do nothing, we have to keep looking through the items.
+                // This item also can't be visible, though, since it's off the top of the scroll area, so don't draw it.
+            elseif item is BlockPaletteItem
+                if item:GetView2D() not= undefined
+                    item:GetView2D():Draw(painter)
+                end
+                
+                Array<Item2D> subItems = item:GetChildren()
+                integer j = 0
+                repeat while j < subItems:GetSize()
+                    Item2D subItem = subItems:Get(j)
+                    if subItem is Block
+                        renderArray:Add(cast(Block, subItem))
+                    else
+                        subItem:Draw(painter)
+                    end
+                    
+j = j + 1
+                end
+                
+            else
+                item:Draw(painter)
+            end
+            
+            i = i + 1
+        end
+        
+        i = 0
+        repeat while i < renderArray:GetSize()
+            Block block = renderArray:Get(i)
+if block is MultipleLineBlock
+                MultipleLineBlock multiBlock = cast(MultipleLineBlock, block)
+                multiBlock:DrawParts(painter)
+                currentMultiBlocks:Add(multiBlock)
+            else
+                block:Draw(painter)
+            end
+            
+            i = i + 1
+        end
+        
+        repeat until renderArray:IsEmpty()
+            Block block = renderArray:RemoveFromFront()
+            block:DrawContents(painter)
+        end
+        
+        repeat until currentMultiBlocks:IsEmpty()
+currentMultiBlocks:RemoveFromFront():DrawConnectors(painter)
+        end
+        
+
+        // Now that we've finally rendered all the contents, render the scroll bars.
+Array<Item2D> children = GetChildren()
+        i = 0
+        repeat while i < children:GetSize()
+            Item2D child = children:Get(i)
+            if child is ScrollPaneRenderer = false
+                child:Draw(painter)
+            end
+            i = i + 1
+        end
+        
+        
+end
+
+    action AddBlockPaletteItem(text name) returns Button
+        BlockPaletteItem button
+        button:SetPalette(palette)
+
+        button:SetName(name)
+        button:SetHorizontalLayoutMode(button:parent:Control:STANDARD)
+        button:SetVerticalLayoutMode(button:parent:Control:STANDARD)
+        button:SetToDefaultFontSize()
+        button:SetBehavior(itemInsertBehavior)
+        button:SetBlocks(button:ParseToBlocks(name))
+        button:SetFontSize(palette:GetFontSize())
+
+        Add(button)
+        return button
+    end
+    
+    action AddBlockPaletteItem(text name, Action templateAction) returns BlockPaletteItem
+        BlockPaletteItem item
+        item:SetPalette(palette)
+        
+item:SetName(name)
+        item:SetHorizontalLayoutMode(item:parent:Control:STANDARD)
+        item:SetVerticalLayoutMode(item:parent:Control:STANDARD)
+        item:SetToDefaultFontSize()
+        item:SetBehavior(itemInsertBehavior)
+item:SetFontSize(palette:GetFontSize())
+        item:SetCode(name)
+        item:SetTemplateAction(templateAction)
+        
+        Add(item)
+        return item
+    end
+    
+    action AddBasicBlocks
+        text dq = ""
+        dq = dq:GetDoubleQuote()
+        AddBlockPaletteItem("")
+        AddBlockPaletteItem("integer a = 0")
+        AddBlockPaletteItem("number b = 0.0")
+        AddBlockPaletteItem("boolean bool = true")
+        AddBlockPaletteItem("text string = "+dq+"words"+dq+"")
+        AddBlockPaletteItem("output "+dq+"words"+dq+"")
+        AddBlockPaletteItem("say "+dq+"words"+dq+"")
+        AddBlockPaletteItem("text string = input()")
+        AddBlockPaletteItem("// my comment")
+    end
+    
+    action AddControlBlocks
+text dq = ""
+        dq = dq:GetDoubleQuote()
+        lf = dq:GetLineFeed()
+        AddBlockPaletteItem("if true" + lf + "end")
+        AddBlockPaletteItem("elseif true")
+        AddBlockPaletteItem("if true"+lf+"else"+lf+"end")
+        AddBlockPaletteItem("else")
+        AddBlockPaletteItem("repeat 1 times" + lf + "end")
+        AddBlockPaletteItem("repeat until true" + lf + "end")
+        AddBlockPaletteItem("repeat while false" + lf + "end")
+    end
+    
+    action AddActionBlocks
+text dq = ""
+        dq = dq:GetDoubleQuote()
+        lf = dq:GetLineFeed()
+        AddBlockPaletteItem("action myAction" + lf + "end")
+        AddBlockPaletteItem("action myAction(type name)" + lf + "end")
+        AddBlockPaletteItem("action myAction returns integer" + lf + "return 0" + lf + "end")
+        AddBlockPaletteItem("return value")
+        AddBlockPaletteItem("class MyClass" + lf + "end")
+        AddBlockPaletteItem("use myLibrary")
+    end
+
+    action AddVariableList returns BlockPaletteVariableList
+        BlockPaletteVariableList varList
+        varList:SetPalette(GetPalette())
+        varList:SetIconFont(me:palette:GetIconFont())
+        varList:LoadIcons()
+        Add(varList)
+        return varList
+    end
+
+    action GetEditor returns CodeEditor
+        return palette:GetEditor()
+    end
+
+    action SetPalette(BlockPalette blockPalette)
+        me:palette = blockPalette
+    end
+
+    action GetPalette returns BlockPalette
+        return palette
+    end
+
+    action GetIconUnicode returns integer
+        return iconUnicode
+    end
+
+    action SetIconUnicode(integer iconUnicode)
+        me:iconUnicode = iconUnicode
+    end
+
+    action GetIconFilePath returns text
+        return iconFilePath
+    end
+
+    action SetIconFilePath(text iconFilePath)
+        me:iconFilePath = iconFilePath
+    end
+    
+    action NextItem
+        GameStateManager manager
+FocusManager focusManager = manager:GetGame():GetFocusManager()
+focusManager:FocusNextItem()
+        Item focus = focusManager:GetFocus()
+        ScrollToItem(cast(Item2D, focus))
+    end
+    
+    action PreviousItem
+GameStateManager manager
+FocusManager focusManager = manager:GetGame():GetFocusManager()
+focusManager:FocusPreviousItem()
+        Item focus = focusManager:GetFocus()
+        ScrollToItem(cast(Item2D, focus))
+    end
+    
+    action ScrollToItem(Item2D focus)
+Item2D candidate = focus:GetParent()
+repeat until candidate = undefined or candidate is ScrollPaneRendererAnchor
+    candidate = candidate:GetParent()
+end
+
+number anchorY = 0
+if candidate not= undefined
+    anchorY = candidate:GetGlobalY()
+        else
+            return now
+end
+
+number totalContentHeight = GetTotalContentHeight()
+        number momY = GetScrollPercentageY()
+        number scrollHeight = GetScrollPercentageHeight()
+        number focusGlobalY = focus:GetGlobalY()
+        number y = focusGlobalY - anchorY
+number childY = Clamp(y, 0.0, totalContentHeight)
+        number scrollPadding = focus:GetHeight() / totalContentHeight
+        number buffer = scrollPadding * 0.50
+        if totalContentHeight not= 0
+number childPercent = (totalContentHeight - childY) / totalContentHeight
+            childPercent = Clamp(childPercent, 0.0, 1.0)
+if childPercent - scrollPadding < momY
+SetScrollPercentageY(childPercent - scrollPadding - buffer)
+            elseif childPercent + scrollPadding > momY + scrollHeight
+SetScrollPercentageY(childPercent - scrollHeight + buffer)
+            end
+        end
+    end
+    
+    action Clamp(number value, number min, number max) returns number
+        if value > max
+            return max
+        elseif value < min 
+            return min
+        else
+            return value
+        end
+    end
+end

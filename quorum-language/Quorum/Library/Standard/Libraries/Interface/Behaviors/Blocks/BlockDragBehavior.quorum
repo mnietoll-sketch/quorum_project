@@ -1,0 +1,310 @@
+package Libraries.Interface.Behaviors.Blocks
+
+use Libraries.Interface.Behaviors.Behavior
+use Libraries.Interface.Events.BehaviorEvent
+use Libraries.Interface.Events.DragAndDropEvent
+use Libraries.Interface.Item2D
+use Libraries.Containers.Array
+use Libraries.Interface.Controls.Blocks.Block
+use Libraries.Interface.Controls.Blocks.CodeEditor
+use Libraries.Interface.Item
+use Libraries.Interface.Controls.Control
+use Libraries.Game.Graphics.Color
+use Libraries.Interface.Views.ControlShaderView
+use Libraries.Game.Layer2D
+use Libraries.Interface.Controls.Blocks.EditRegion
+use Libraries.Interface.Views.SingleLineBlockView
+use Libraries.Interface.Controls.Blocks.Palette.BlockPaletteItem
+use Libraries.Interface.Controls.Blocks.Palette.BlockPalette
+use Libraries.Interface.Controls.Blocks.BlockEnvironment
+use Libraries.Compute.Vector2
+use Libraries.Interface.Controls.Blocks.MultipleLineBlockConnector
+use Libraries.Interface.Controls.Blocks.MultipleLineBlock
+
+class BlockDragBehavior is Behavior
+    
+    Item2D dragAnchor
+    
+    // The original blocks that were selected for dragging.
+    Array<Block> sourceBlocks = undefined
+    
+    // The source the Block was dragged from. Used to cancel the drag if dragged off onto an invalid target.
+    Item2D dragSource = undefined
+    
+    /*The dragOriginPoint stores the point on the screen where the mouse was first clicked when dragging began.
+When the distance dragged from the origin exceeds the dragDistanceThreshold, then the actual dragging
+behavior begins. The value of the threshold is determined based on the height of the block.*/
+    Vector2 dragOriginPoint
+    number dragDistanceThreshold = 0
+    boolean draggingStarted = false
+    
+    on create
+        dragAnchor:SetZ(-3)
+        dragAnchor:SetName("Block Drag Anchor")
+    end
+    
+    action Run(BehaviorEvent event)
+        DragAndDropEvent dragEvent = event:GetDragAndDropEvent()
+        if dragEvent:eventType = dragEvent:DRAGGING_BEGAN
+            dragOriginPoint:Set(dragEvent:GetX(), dragEvent:GetY())
+            draggingStarted = false
+            
+            Item targetItem = event:GetItem()
+            if targetItem is Item2D = false
+                return now
+            end
+            
+            Item2D item2D = cast(Item2D, targetItem)
+            repeat until item2D is Block or item2D is BlockEnvironment or item2D is MultipleLineBlockConnector or item2D = undefined
+                item2D = item2D:GetParent()
+            end
+            
+            // Try to get a good distance threshold relative to he line height, or use a default value otherwise.
+            if item2D not= undefined and item2D is Control
+                Control control = cast(Control, item2D)
+                if control is MultipleLineBlockConnector
+                    MultipleLineBlockConnector connector = cast(MultipleLineBlockConnector, control)
+                    if connector:GetParentBlock() not= undefined
+                        control = connector:GetParentBlock()
+                    end
+                end
+                if control is Block
+                    Block block = cast(Block, control)
+                    control = block:GetBlockEnvironment()
+                end
+                
+                dragDistanceThreshold = 0.8 * control:GetFont():GetLineHeight()
+            else
+                dragDistanceThreshold = 10
+            end
+            
+        elseif dragEvent:eventType = dragEvent:DRAGGING_CONTINUED and draggingStarted = false
+            if dragOriginPoint:Distance(dragEvent:GetX(), dragEvent:GetY()) < dragDistanceThreshold
+                return now
+            end
+            
+            // Unload any state from previous drags, if needed.
+            Reset()
+            
+            draggingStarted = true
+            
+            Item targetItem = event:GetItem()
+            CodeEditor editor = undefined
+            BlockPaletteItem paletteItem = undefined
+            if targetItem is CodeEditor
+                editor = cast(CodeEditor, targetItem)
+                dragSource = editor
+            elseif targetItem is Block
+                Block block = cast(Block, targetItem)
+                BlockEnvironment environment = block:GetBlockEnvironment()
+                if environment is CodeEditor
+                    editor = cast(CodeEditor, environment)
+                    dragSource = editor
+                elseif environment is BlockPaletteItem
+                    paletteItem = cast(BlockPaletteItem, environment)
+                else
+                    // Check to see if this Block is actually on an Editor, or if the Editor has been associated from elsewhere.
+                    Item2D parentItem = block
+                    repeat until parentItem = undefined or parentItem is CodeEditor
+                        parentItem = parentItem:GetParent()
+                    end
+                    
+                    dragSource = parentItem
+                end
+                
+            elseif targetItem is BlockPaletteItem
+                paletteItem = cast(BlockPaletteItem, targetItem)
+            elseif targetItem is MultipleLineBlockConnector
+                MultipleLineBlockConnector connector = cast(MultipleLineBlockConnector, targetItem)
+                MultipleLineBlock multiBlock = connector:GetParentBlock()
+                if multiBlock:GetBlockEnvironment() is CodeEditor
+                    editor = cast(CodeEditor, multiBlock:GetBlockEnvironment())
+                    dragSource = editor
+                end
+                
+                Array<Block> blocks
+                Block currentBlock = multiBlock
+                Block lastBlock = multiBlock:GetChild(multiBlock:GetChildCount() - 1)
+                boolean done = false
+                repeat until currentBlock = undefined or done = true
+                    if currentBlock:IsNavigable()
+                        blocks:Add(currentBlock)
+                    end
+                    if currentBlock = lastBlock
+                        done = true
+                    end
+                    currentBlock = currentBlock:GetNextNavigableBlock()
+                end
+                
+                sourceBlocks = blocks
+                
+            elseif targetItem is Item2D
+                Item2D target = cast(Item2D, targetItem)
+                repeat until (target = undefined) or (target is CodeEditor) or (target is BlockPalette) or (target is BlockPaletteItem)
+                    if target is EditRegion
+                        EditRegion region = cast(EditRegion, target)
+                        Block block = region:GetBlock()
+                        if block not= undefined and block:IsPlaceholder() = false
+                            return now
+                        end
+                    end
+                    target = target:GetParent()
+                end
+                
+                // Note that the target might be undefined or it might be an EditRegion.
+                // EditRegion wants to do its own thing on click/drag, so we ignore it in that case.
+                if target is CodeEditor
+                    editor = cast(CodeEditor, target)
+                    dragSource = editor
+                elseif target is BlockPaletteItem
+                    paletteItem = cast(BlockPaletteItem, target)
+                elseif target is BlockPalette
+                    BlockPalette palette = cast(BlockPalette, target)
+                    editor = palette:GetEditor()
+                    dragSource = palette
+                end
+            end
+
+            if paletteItem not= undefined
+                editor = paletteItem:GetPalette():GetEditor()
+                // If there's no editor attached to the palette item, or if there's an editor but it's not in the Game anymore, abort now.
+                if editor = undefined or editor:GetLayer() = undefined
+                    draggingStarted = false
+                    return now
+                end
+                dragSource = paletteItem:GetPalette()
+                sourceBlocks = paletteItem:GetBlocks()
+            end
+            
+            if editor:IsKeyboardMovingBlocks()
+                editor:CancelKeyboardMovingBlocks()
+            end
+            
+            if IsDraggingSourceBlocks()
+                UnloadDraggedBlocks()
+            end
+            
+            if editor not= undefined
+                if dragSource is CodeEditor and sourceBlocks = undefined
+                    sourceBlocks = editor:GetSelectedBlocks()
+                end
+                LoadDraggedBlocks(sourceBlocks, dragEvent:GetStartX(), dragEvent:GetStartY())
+            end
+            
+        elseif dragEvent:eventType = dragEvent:DRAGGING_CONTINUED and draggingStarted = true
+            if IsDraggingSourceBlocks()
+                dragAnchor:SetPosition(dragEvent:GetX(), dragEvent:GetY())
+            end
+        elseif dragEvent:eventType = dragEvent:DROPPED
+            if IsDraggingSourceBlocks()
+                UnloadDraggedBlocks()
+            end
+            
+            if dragSource is CodeEditor and (cast(Item, dragSource) not= dragEvent:GetDestination())
+                CodeEditor editor = cast(CodeEditor, dragSource)
+                editor:RemovePlaceholders()
+                editor:SetMovingBlocks(undefined)
+            end
+            dragSource = undefined
+            draggingStarted = false
+        end
+        
+    end
+    
+    action IsDraggingBlocks returns boolean
+        return draggingStarted
+    end
+    
+    private action IsDraggingSourceBlocks returns boolean
+        return sourceBlocks not= undefined
+    end
+    
+    // Generate the visual representation of the dragged blocks and add them to the Game.
+    action LoadDraggedBlocks(Array<Block> blocks, integer startX, integer startY)
+        if blocks = undefined or blocks:IsEmpty()
+            return now
+        end
+        
+        BlockEnvironment environment = blocks:GetFromFront():GetBlockEnvironment()
+        CodeEditor editor = undefined
+        if environment is CodeEditor
+            editor = cast(CodeEditor, environment)
+        end
+        
+        integer i = 0
+        number targetX = 0
+        number targetY = 0
+        Layer2D targetLayer = blocks:Get(i):GetLayer()
+        if targetLayer = undefined
+            if dragSource = undefined
+                return now
+            end
+            targetLayer = dragSource:GetLayer()
+        end
+        
+        integer startScope = blocks:Get(0):GetScopeDepth()
+        number scopeIndentation = 0
+        if environment not= undefined
+            scopeIndentation = environment:GetScopeIndentationWidth()
+        end
+        
+        repeat while i < blocks:GetSize()
+            Block block = blocks:Get(i)
+            
+            Block dummyBlock = block
+            dummyBlock:SetInterfaceScale(environment:GetInterfaceScale())
+            
+            dummyBlock = block:CopyToPlaceholder()
+            dummyBlock:SetSize(block:GetWidth(), block:GetHeight())
+            dummyBlock:SetPosition(targetX + (dummyBlock:GetScopeDepth() - startScope) * scopeIndentation, targetY)
+            
+            SingleLineBlockView view
+            view:Initialize()
+            dummyBlock:SetView2D(view)
+            
+            dragAnchor:Add(dummyBlock)
+            
+            targetY = targetY - dummyBlock:GetHeight()
+            i = i + 1
+        end
+        
+        sourceBlocks = blocks
+        targetLayer:Add(dragAnchor)
+        
+        if editor not= undefined and dragSource is CodeEditor
+            editor:SetMovingBlocks(sourceBlocks)
+        end
+        
+    end
+    
+    // Remove the visual representation of the dragged blocks from the Game.
+    action UnloadDraggedBlocks
+        if IsDraggingSourceBlocks()
+            dragAnchor:Empty()
+            
+            Layer2D layer = dragAnchor:GetLayer()
+            if layer not= undefined
+                layer:Remove(dragAnchor)
+            end
+        end
+    end
+    
+    action GetSourceBlocks returns Array<Block>
+        return sourceBlocks
+    end
+
+    action GetDragSource returns Item2D
+        return dragSource
+    end
+    
+    // Used externally to indicate that the source blocks are no longer needed.
+    // This is necessary because order-of-operations in InputSets means that BlockDragBehavior
+    // will respond to the drag being finished before CodeEditorAcceptDraggedBlockBehavior does.
+    action Reset
+        if IsDraggingSourceBlocks()
+            UnloadDraggedBlocks()
+        end
+        sourceBlocks = undefined
+    end
+
+end

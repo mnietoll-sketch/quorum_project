@@ -1,0 +1,35 @@
+package Libraries.Game.Graphics.Shaders
+use Libraries.Game.GameStateManager
+
+class ControlShaderProgram is ShaderProgram
+
+    public constant text DEFAULT_NAME = "Control Shader Program"
+    constant text VERTEX_NAME = "Control Vertex Shader"
+    constant text FRAGMENT_NAME = "Control Fragment Shader"
+
+    on create
+        SetName(DEFAULT_NAME)
+        GameStateManager gameState
+        ShaderManager manager = gameState:GetShaderManager()
+        
+        if manager:HasShader(VERTEX_NAME)
+            Shader vertex = manager:GetShader(VERTEX_NAME)
+            Add(vertex)
+        else
+            ControlVertexShader vertex
+            Add(vertex)
+        end
+
+        if manager:HasShader(FRAGMENT_NAME)
+            Shader fragment = manager:GetShader(FRAGMENT_NAME)
+            Add(fragment)
+        else
+            ControlFragmentShader fragment
+            Add(fragment)
+        end
+
+        ControlShaderMapping mapping
+        SetShaderMapping(mapping)
+    end
+
+end

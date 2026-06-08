@@ -1,0 +1,87 @@
+package Libraries.Interface.Controls.Blocks
+
+use Libraries.Interface.Controls.Blocks.EditField
+use Libraries.Interface.Controls.Blocks.BlockLabel
+use Libraries.Interface.Options.BlockOptionConstants
+use Libraries.Language.Compile.Context.all
+use Libraries.Language.Compile.Location
+use Libraries.Interface.Controls.Layouts.ScopeBlockLayout
+use Libraries.Interface.Controls.Layouts.SingleLineBlockLayout
+
+class UseBlock is SingleLineBlock
+
+    BlockLabel useLabel = undefined
+    UseContext useContext = undefined
+    EditField nameField = undefined
+
+    on create
+        BlockOptionConstants constants
+        SetInterfaceOptionsKey(constants:USE_KEY)
+
+        SingleLineBlockLayout layout
+        SetLayout(layout)
+
+        SetName("Use Block")
+    end
+
+    action UpdateName(integer selectedLine)
+        // TO-DO: NYI
+        // This should be the entire text read by the screen reader when focused, not just the "output" portion
+        SetName("use")
+    end
+    
+    action GetBlockName returns text
+        return "Use"
+    end
+    
+    action GetBlockDescription returns text
+        return "The Use block is used to add more functionality to the program through the use of libraries."
+    end
+
+    action SetupElements
+        BlockEnvironment editor = GetBlockEnvironment()
+        number spacing = editor:GetDefaultGlyphWidth()
+        SetLeftPadding(spacing * 0.5)
+        SetRightPadding(spacing * 0.5)
+
+        BlockLabel bl
+        me:useLabel = bl
+        useLabel:SetFont(editor:GetFont())
+        useLabel:SetFontSize(editor:GetFontSize())
+        useLabel:SetText("use")
+        useLabel:SetRightPadding(spacing)
+        Add(useLabel)
+
+        ParseContext name = useContext:nameContext
+        if name = undefined //this is an error. Should we flag it in the user interface?
+            return now
+        end
+
+        Location location = name:GetLocation()
+        
+
+        EditField nameField
+        me:nameField = nameField
+        Add(nameField)
+
+        nameField:Setup("Name", location:GetIndex() - GetStartIndex(), 1 + location:GetIndexEnd() - GetStartIndex())
+        nameField:AddBottomLabel("Library")
+    end
+    
+    action GetLibraryName returns text
+        if nameField not= undefined
+            return nameField:GetText()
+        end
+        return ""
+    end
+
+    action GetUseContext returns UseContext
+        return useContext
+    end
+
+    action SetContext(UseContext context)
+        me:useContext = context
+        SetContext(cast(ParseContext,context))
+    end
+
+end
